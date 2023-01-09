@@ -1,0 +1,65 @@
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'java-library'
+    apply plugin: 'maven-publish'
+    apply plugin: 'idea'
+
+    group 'quan'
+    version 1.0
+    sourceCompatibility = JavaVersion.VERSION_1_8
+
+    tasks.withType(JavaCompile).tap {
+        configureEach {
+            options.encoding = 'UTF-8'
+            options.failOnError = false
+        }
+    }
+
+    javadoc {
+        options.encoding = 'UTF-8'
+        options.addStringOption('Xdoclint:none', '-quiet')
+    }
+
+    idea.module {
+        outputDir file("${buildDir}/out/main")
+        testOutputDir file("${buildDir}/out/test")
+    }
+
+    clean {
+        doLast {
+            file("$projectDir/out").deleteDir()
+        }
+    }
+
+    publishing {
+        publications {
+            maven(MavenPublication) {
+                from components.java
+            }
+        }
+    }
+
+    task copyDependencies(type: Copy) {
+        from configurations.runtimeClasspath
+        into "$buildDir/dependencies"
+        include "**/*.jar"
+        includeEmptyDirs false
+    }
+
+    test {
+        useJUnit()
+    }
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven {
+            url = 'https://maven.aliyun.com/repository/central'
+        }
+    }
+
+    dependencies {
+        testImplementation 'junit:junit:4.13'
+    }
+
+}

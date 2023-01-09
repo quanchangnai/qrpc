@@ -1,0 +1,4 @@
+rootProject.name = 'qrpc'
+include 'qrpc-runtime'
+include 'qrpc-generator'
+

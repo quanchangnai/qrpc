@@ -1,0 +1,8 @@
+
+dependencies {
+    api(project(':qrpc-runtime')) {
+        exclude group: 'io.netty', module: 'netty-all'
+        exclude group: 'quan', module: 'quan-message'
+    }
+    api 'org.freemarker:freemarker:2.3.29'
+}
