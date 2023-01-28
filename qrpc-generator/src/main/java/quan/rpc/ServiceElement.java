@@ -81,10 +81,6 @@ public abstract class ServiceElement {
         this.serviceClass = serviceClass;
     }
 
-    public String getGeneratorName() {
-        return RpcGenerator.class.getName();
-    }
-
     public void optimizeImport4Proxy() {
         optimizedTypeParameters.clear();
         for (String name : originalTypeParameters.keySet()) {

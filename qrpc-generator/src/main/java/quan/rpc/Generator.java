@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 @SupportedAnnotationTypes({"quan.rpc.Endpoint", "quan.rpc.SingletonService"})
 @SupportedOptions("rpcProxyPath")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
-public class RpcGenerator extends AbstractProcessor {
+public class Generator extends AbstractProcessor {
 
     private Messager messager;
 
