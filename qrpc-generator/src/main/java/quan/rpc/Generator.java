@@ -14,10 +14,9 @@ import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.Writer;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -273,7 +272,7 @@ public class Generator extends AbstractProcessor {
             File path = new File(proxyPath, serviceClass.getPackageName().replace(".", "/"));
             mkdirs(path);
             File file = new File(path, serviceClass.getName() + "Proxy.java");
-            proxyWriter = new FileWriter(file);
+            proxyWriter = new OutputStreamWriter(Files.newOutputStream(file.toPath()), StandardCharsets.UTF_8);
         }
 
         try {

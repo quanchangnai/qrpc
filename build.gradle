@@ -8,12 +8,11 @@ subprojects {
     version 1.0
     sourceCompatibility = JavaVersion.VERSION_1_8
 
-    tasks.withType(JavaCompile).tap {
-        configureEach {
-            options.encoding = 'UTF-8'
-            options.failOnError = false
-        }
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.failOnError = false
     }
+
 
     javadoc {
         options.encoding = 'UTF-8'
@@ -39,7 +38,7 @@ subprojects {
         }
     }
 
-    task copyDependencies(type: Copy) {
+    tasks.register('copyDependencies', Copy) {
         from configurations.runtimeClasspath
         into "$buildDir/dependencies"
         include "**/*.jar"

@@ -9,7 +9,7 @@ dependencies {
     api 'org.apache.logging.log4j:log4j-slf4j-impl:2.17.2'
     api 'org.apache.commons:commons-lang3:3.9'
     api 'quan:quan-message:1.0'
-    api 'io.netty:netty-all:4.1.75.Final'
+    api 'io.netty:netty-all:4.1.86.Final'
     implementation 'com.rabbitmq:amqp-client:5.15.0'
     testAnnotationProcessor project(':qrpc-generator')
 }
