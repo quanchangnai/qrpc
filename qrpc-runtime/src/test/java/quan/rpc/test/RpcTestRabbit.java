@@ -16,10 +16,10 @@ public class RpcTestRabbit {
         connectionFactory.setVirtualHost("/");
         connectionFactory.setUsername("guest");
         connectionFactory.setPassword("guest");
-        RabbitConnector rabbitConnector = new RabbitConnector(connectionFactory);
 
+
+        RabbitConnector rabbitConnector = new RabbitConnector(connectionFactory);
         LocalServer localServer = new LocalServer(3, 5, rabbitConnector);
-        rabbitConnector.addRemote(1);
         localServer.addService(new TestService2(2));
         localServer.start();
     }

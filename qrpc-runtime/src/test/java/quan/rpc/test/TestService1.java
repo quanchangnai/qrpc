@@ -84,7 +84,7 @@ public class TestService1 extends UpdatableService {
     @Override
     protected void update() {
         long now = System.currentTimeMillis();
-        if (lastTime > 0 && now < lastTime + 5000) {
+        if (now > 0) {
             return;
         }
         lastTime = now;

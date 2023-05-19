@@ -1,27 +1,34 @@
 package quan.rpc;
 
 import com.rabbitmq.client.*;
+import org.apache.commons.lang3.concurrent.BasicThreadFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import quan.message.CodedBuffer;
 import quan.message.DefaultCodedBuffer;
+import quan.rpc.protocol.Protocol;
+import quan.rpc.protocol.Request;
+import quan.rpc.protocol.Response;
 import quan.rpc.serialize.ObjectWriter;
-import quan.rpc.protocol.*;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 /**
  * 基于RabbitMQ的网络连接器
  *
  * @author quanchangnai
  */
-public class RabbitConnector extends Connector {
+public class RabbitConnector {
+
+    protected final static Logger logger = LoggerFactory.getLogger(RabbitConnector.class);
+
+    protected LocalServer localServer;
 
     private String namePrefix = "";
 
@@ -29,11 +36,9 @@ public class RabbitConnector extends Connector {
 
     private Connection connection;
 
-    private ThreadLocal<Channel> channel;
+    private Predicate<Integer> remoteIdChecker;
 
-    private final Map<Integer, Remote> remotes = new ConcurrentHashMap<>();
-
-    private final Set<Integer> remoteIds = Collections.unmodifiableSet(remotes.keySet());
+    private ThreadLocal<Channel> channelHolder;
 
     private ScheduledExecutorService executor;
 
@@ -45,7 +50,11 @@ public class RabbitConnector extends Connector {
      */
     public RabbitConnector(ConnectionFactory connectionFactory, String namePrefix) {
         connectionFactory.useNio();
+        connectionFactory.setAutomaticRecoveryEnabled(true);
+        connectionFactory.setNetworkRecoveryInterval(Math.max(connectionFactory.getNetworkRecoveryInterval(), 1000));
+
         this.connectionFactory = connectionFactory;
+
         if (namePrefix != null) {
             this.namePrefix = namePrefix;
         }
@@ -58,38 +67,39 @@ public class RabbitConnector extends Connector {
         this(connectionFactory, null);
     }
 
-    @Override
-    protected void start() {
-        try {
-            connection = connectionFactory.newConnection();
-        } catch (Exception e) {
-            throw new RuntimeException("创建RabbitMQ连接失败", e);
-        }
-
-        executor = Executors.newScheduledThreadPool(localServer.getWorkerNum());
-
-        channel = ThreadLocal.withInitial(this::initChannel);
-        initChannel();
-
-        for (Remote remote : remotes.values()) {
-            remote.start();
-        }
+    public void setRemoteIdChecker(Predicate<Integer> remoteIdChecker) {
+        this.remoteIdChecker = remoteIdChecker;
     }
 
-    @Override
+    protected void start() {
+        BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("rabbit-connector-thread-%d").build();
+        executor = Executors.newScheduledThreadPool(localServer.getWorkerNum(), threadFactory);
+        channelHolder = ThreadLocal.withInitial(this::initChannel);
+        executor.execute(this::connect);
+    }
+
     protected void stop() {
-        channel = null;
-        remotes.values().forEach(Remote::stop);
-        remotes.clear();
-        connection.abort();
-        connection = null;
+        channelHolder = null;
+        if (connection != null) {
+            connection.abort();
+            connection = null;
+        }
         executor.shutdown();
         executor = null;
     }
 
-    @Override
-    protected void update() {
-        remotes.values().forEach(Remote::update);
+    private void connect() {
+        try {
+            connection = connectionFactory.newConnection(executor);
+        } catch (Exception e) {
+            long reconnectInterval = connectionFactory.getNetworkRecoveryInterval();
+            logger.error("连接RabbitMQ失败，将在{}毫秒后尝试重连", reconnectInterval, e);
+            executor.schedule(this::connect, reconnectInterval, TimeUnit.MILLISECONDS);
+            return;
+        }
+
+        //默认创建一个Channel
+        getChannel();
     }
 
     protected String exchangeName(int serverId) {
@@ -100,9 +110,30 @@ public class RabbitConnector extends Connector {
         return namePrefix + serverId;
     }
 
+    private Channel getChannel() {
+        if (connection == null) {
+            throw new RuntimeException("RabbitMQ连接还未建立");
+        }
+        Channel channel = channelHolder.get();
+        if (!channel.isOpen()) {
+            channelHolder.remove();
+            channel = channelHolder.get();
+        }
+        return channel;
+    }
+
     private Channel initChannel() {
         try {
             Channel channel = connection.createChannel();
+            channel.addShutdownListener(cause -> {
+                if (cause.isHardError()) {
+                    logger.error("rabbitmq connection shutdown", cause);
+                } else {
+                    logger.error("rabbitmq channel shutdown", cause);
+                    executor.execute(this::getChannel);//保证至少有一个channel
+                }
+            });
+
             String exchangeName = exchangeName(localServer.getId());
             channel.exchangeDeclare(exchangeName, BuiltinExchangeType.DIRECT, false, true, null);
 
@@ -110,7 +141,7 @@ public class RabbitConnector extends Connector {
             Map<String, Object> queueArgs = new HashMap<>();
             queueArgs.put("x-message-ttl", localServer.getCallTtl() * 1000);//设置队列里消息的过期时间
             channel.queueDeclare(queueName, false, true, true, queueArgs);
-            channel.queueBind(exchangeName, queueName, "");
+            channel.queueBind(queueName, exchangeName, "");
 
             channel.basicConsume(queueName, true, new DefaultConsumer(channel) {
                 @Override
@@ -131,262 +162,41 @@ public class RabbitConnector extends Connector {
         }
     }
 
-    public boolean addRemote(int remoteId) {
-        if (remotes.containsKey(remoteId) || localServer != null && localServer.hasRemote(remoteId)) {
-            logger.error("远程服务器[{}]已存在", remoteId);
-            return false;
-        }
-
-        Remote remote = new Remote(remoteId, this);
-        remotes.put(remoteId, remote);
-        if (localServer != null && localServer.isRunning()) {
-            remote.start();
-        }
-
-        return true;
+    protected boolean checkRemoteId(int remoteId) {
+        return remoteIdChecker == null || remoteIdChecker.test(remoteId);
     }
 
-    public boolean removeRemote(int remoteId) {
-        Remote remote = remotes.remove(remoteId);
-        if (remote != null) {
-            remote.stop();
-        }
-        return remote != null;
-    }
-
-    @Override
-    public boolean isRemoteActivated(int remoteId) {
-        Remote remote = remotes.remove(remoteId);
-        return remote != null && remote.activated;
-    }
-
-    @Override
-    public Set<Integer> getRemoteIds() {
-        return remoteIds;
-    }
-
-    @Override
     protected void sendProtocol(int remoteId, Protocol protocol) {
-        checkRemote(remoteId, protocol);
         Worker worker = Worker.current();
-
+        //异步发送，防止阻塞工作线程
         executor.execute(() -> {
             try {
-                //异步发送，防止阻塞工作线程
-                publishProtocol(remoteId, protocol);
+                CodedBuffer buffer = new DefaultCodedBuffer();
+                ObjectWriter objectWriter = localServer.getWriterFactory().apply(buffer);
+                objectWriter.write(protocol);
+
+                //exchange不存在时不会报错，会异步关闭channel
+                getChannel().basicPublish(exchangeName(remoteId), "", null, buffer.remainingBytes());
             } catch (Exception e) {
                 if (protocol instanceof Request) {
+                    CallException callException = new CallException(String.format("发送协议到远程服务器[%s]出错", remoteId), e);
                     long callId = ((Request) protocol).getCallId();
-                    worker.execute(() -> worker.handlePromise(callId, e, null));
+                    worker.execute(() -> worker.handlePromise(callId, callException, null));
                 } else {
                     logger.error("发送协议出错，{}", protocol, e);
                 }
-
             }
         });
     }
 
-    private void checkRemote(int remoteId, Protocol protocol) {
-        Remote remote = remotes.get(remoteId);
-        if (remote == null) {
-            throw new IllegalArgumentException(String.format("远程服务器[%s]不存在", remoteId));
-        }
-
-        if (!remote.activated && !(protocol instanceof Handshake)) {
-            throw new IllegalStateException(String.format("远程服务器[%s]的连接还未建立", remoteId));
-        }
-    }
-
-    private void publishProtocol(int remoteId, Protocol protocol) {
-        try {
-            CodedBuffer buffer = new DefaultCodedBuffer();
-            ObjectWriter objectWriter = localServer.getWriterFactory().apply(buffer);
-            objectWriter.write(protocol);
-            channel.get().basicPublish(exchangeName(remoteId), "", null, buffer.remainingBytes());
-        } catch (Exception e) {
-            if (e instanceof AlreadyClosedException) {
-                channel.remove();
-            }
-            throw new RuntimeException(String.format("发送协议到远程服务器[%s]出错", remoteId), e);
-        }
-    }
-
     protected void handleProtocol(Protocol protocol) {
-        if (protocol instanceof Handshake) {
-            handleHandshake((Handshake) protocol);
-        } else if (protocol instanceof PingPong) {
-            Remote remote = remotes.get(protocol.getServerId());
-            if (remote != null) {
-                remote.handlePingPong((PingPong) protocol);
-            }
-        } else if (protocol instanceof Request) {
+        if (protocol instanceof Request) {
             localServer.handleRequest((Request) protocol);
         } else if (protocol instanceof Response) {
             localServer.handleResponse((Response) protocol);
         } else {
             logger.error("收到非法RPC协议:{}", protocol);
         }
-    }
-
-    protected void sendHandshake(int remoteId, int param) {
-        Handshake handshake = new Handshake(localServer.getId(), param);
-        if (param != 3) {
-            checkRemote(remoteId, handshake);
-        }
-        publishProtocol(remoteId, handshake);
-    }
-
-    protected void handleHandshake(Handshake handshake) {
-        int remoteId = handshake.getServerId();
-        Integer param = handshake.getParam(0);
-
-        if (param == 1) {
-            Remote remote = remotes.get(remoteId);
-            if (remote == null) {
-                if (localServer.hasRemote(remoteId)) {
-                    sendHandshake(remoteId, 3);
-                } else {
-                    addRemote(remoteId);
-                    remote = remotes.get(remoteId);
-                    remote.passive = true;
-                    remote.activated = true;
-                }
-            } else {
-                remote.activated = true;
-            }
-        }
-
-        if (param != 1 && remotes.containsKey(remoteId)) {
-            removeRemote(remoteId);
-            if (param == 2) {
-                logger.info("远程服务器[{}]已删除，原因：服务器[{}]在远程被关闭", remoteId, localServer.getId());
-            } else {
-                logger.error("远程服务器[{}]已删除，原因：服务器[{}]在远程已存在", remoteId, localServer.getId());
-            }
-
-        }
-    }
-
-    private static class Remote {
-
-        /**
-         * 远程服务器ID
-         */
-        private final int id;
-
-        protected RabbitConnector connector;
-
-        //被动添加的
-        private volatile boolean passive;
-
-        private volatile boolean activated;
-
-        private volatile boolean stopped;
-
-        private long lastSendPingPongTime;
-
-        private long lastHandlePingPongTime = System.currentTimeMillis();
-
-        public Remote(int id, RabbitConnector connector) {
-            this.id = id;
-            this.connector = connector;
-        }
-
-        public void start() {
-            if (activated || stopped) {
-                return;
-            }
-
-            Throwable throwable = null;
-
-            try {
-                connector.channel.get().exchangeDeclarePassive(connector.exchangeName(id));
-            } catch (IOException e) {
-                throwable = e.getCause();
-            } catch (Throwable e) {
-                throwable = e;
-            }
-
-            if (throwable == null && !passive) {
-                try {
-                    connector.sendHandshake(id, 1);
-                } catch (Exception e) {
-                    throwable = e;
-                }
-            }
-
-            if (throwable != null) {
-                logger.error("连接远程服务器[{}]失败，将在{}毫秒后尝试重连，失败原因：{}", id, connector.getReconnectInterval(), throwable.getMessage());
-                connector.channel.remove();
-            }
-
-            //没有报错也需要再试一次，因为有可能握手收不到回应
-            connector.executor.schedule(this::start, connector.getReconnectInterval(), TimeUnit.SECONDS);
-        }
-
-        public void stop() {
-            stopped = true;
-            if (activated) {
-                activated = false;
-                try {
-                    connector.sendHandshake(id, 2);
-                } catch (Exception e) {
-                    logger.error("", e);
-                }
-            }
-        }
-
-        protected void update() {
-            if (activated) {
-                try {
-                    checkActivated();
-                    sendPingPong();
-                } catch (Exception e) {
-                    logger.error("", e);
-                }
-            }
-        }
-
-        public void restart() {
-            activated = false;
-            stopped = false;
-            start();
-        }
-
-        protected void checkActivated() {
-            long currentTime = System.currentTimeMillis();
-            if (lastHandlePingPongTime == 0 || currentTime - lastHandlePingPongTime < connector.getPingPongInterval() * 2L) {
-                return;
-            }
-
-            activated = false;
-
-            if (passive) {
-                logger.info("远程服务器[{}]连接已断开", id);
-                connector.removeRemote(id);
-            } else {
-                logger.error("远程服务器[{}]连接已断开，将在{}毫秒后尝试重连", id, connector.getReconnectInterval());
-                connector.executor.schedule(this::restart, connector.getReconnectInterval(), TimeUnit.MILLISECONDS);
-            }
-        }
-
-        protected void sendPingPong() {
-            long currentTime = System.currentTimeMillis();
-            if (lastSendPingPongTime + connector.getPingPongInterval() < currentTime) {
-                PingPong pingPong = new PingPong(connector.localServer.getId(), currentTime);
-                connector.checkRemote(id, pingPong);
-                connector.publishProtocol(id, pingPong);
-                lastSendPingPongTime = currentTime;
-            }
-        }
-
-        protected void handlePingPong(PingPong pingPong) {
-            lastHandlePingPongTime = System.currentTimeMillis();
-            if (logger.isDebugEnabled()) {
-                logger.debug("远程服务器[{}]的延迟时间为{}毫秒", id, lastHandlePingPongTime - pingPong.getTime());
-            }
-        }
-
     }
 
 }

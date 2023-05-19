@@ -132,7 +132,7 @@ public class Worker implements Executor {
     }
 
     protected void start() {
-        thread = new Thread(this::run);
+        thread = new Thread(this::run, "worker-" + id);
         thread.start();
         execute(() -> allServices.values().forEach(this::initService));
     }
@@ -398,8 +398,12 @@ public class Worker implements Executor {
     protected void handlePromise(long callId, Exception exception, Object result) {
         Promise<Object> promise = mappedPromises.remove(callId);
         if (promise == null) {
+            if (exception != null) {
+                logger.error("调用[{}]方法出错", callId, exception);
+            }
             return;
         }
+
         sortedPromises.remove(promise);
 
         if (exception != null) {

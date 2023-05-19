@@ -21,7 +21,7 @@ public class RpcTest1 {
         connectionFactory.setPassword("guest");
         RabbitConnector rabbitConnector = new RabbitConnector(connectionFactory);
 
-        LocalServer localServer = new LocalServer(1, 5, nettyConnector);
+        LocalServer localServer = new LocalServer(1, nettyConnector, rabbitConnector);
         localServer.addService(new TestService1(1));
         localServer.addService(new RoleService1<>(2));
         localServer.start();

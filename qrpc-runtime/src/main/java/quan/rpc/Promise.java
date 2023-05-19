@@ -114,7 +114,7 @@ public class Promise<R> {
         }
 
         if (exceptionHandler == null) {
-            logger.error("", exception);
+            logger.error("调用[{}]方法[{}]出错", callId, signature, exception);
             return;
         }
 

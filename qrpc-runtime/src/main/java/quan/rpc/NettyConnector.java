@@ -13,6 +13,8 @@ import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import org.apache.commons.lang3.Validate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import quan.message.CodedBuffer;
 import quan.message.NettyCodedBuffer;
 import quan.rpc.protocol.*;
@@ -29,7 +31,19 @@ import java.util.concurrent.TimeUnit;
  *
  * @author quanchangnai
  */
-public class NettyConnector extends Connector {
+public class NettyConnector {
+
+
+    protected final static Logger logger = LoggerFactory.getLogger(NettyConnector.class);
+
+    protected LocalServer localServer;
+
+    /**
+     * 重连间隔时间(ms)
+     */
+    private int reconnectInterval = 5000;
+
+    private int pingPongInterval = 5000;
 
     private final Receiver receiver;
 
@@ -41,26 +55,45 @@ public class NettyConnector extends Connector {
         receiver = new Receiver(ip, port, this);
     }
 
-    @Override
+    public void setReconnectInterval(int reconnectInterval) {
+        if (reconnectInterval < 1000) {
+            throw new IllegalArgumentException("参数不能小于1000");
+        }
+        this.reconnectInterval = reconnectInterval;
+    }
+
+    public int getReconnectInterval() {
+        return reconnectInterval;
+    }
+
+    public int getPingPongInterval() {
+        return pingPongInterval;
+    }
+
+    public void setPingPongInterval(int pingPongInterval) {
+        if (pingPongInterval < 1000) {
+            throw new IllegalArgumentException("参数不能小于1000");
+        }
+        this.pingPongInterval = pingPongInterval;
+    }
+
     protected void start() {
         receiver.start();
         senders.values().forEach(Sender::start);
     }
 
-    @Override
     protected void stop() {
         receiver.stop();
         senders.values().forEach(Sender::stop);
         senders.clear();
     }
 
-    @Override
     protected void update() {
         senders.values().forEach(Sender::update);
     }
 
     public boolean addRemote(int remoteId, String remoteIp, int remotePort) {
-        if (senders.containsKey(remoteId) || localServer != null && localServer.hasRemote(remoteId)) {
+        if (remoteIds.contains(remoteId)) {
             logger.error("远程服务器[{}]已存在", remoteId);
             return false;
         }
@@ -87,13 +120,11 @@ public class NettyConnector extends Connector {
         return remoteIds;
     }
 
-    @Override
     public boolean isRemoteActivated(int remoteId) {
-        Sender sender = senders.remove(remoteId);
+        Sender sender = senders.get(remoteId);
         return sender != null && sender.context != null;
     }
 
-    @Override
     protected void sendProtocol(int remoteId, Protocol protocol) {
         Sender sender = senders.get(remoteId);
         if (sender == null) {
@@ -159,7 +190,7 @@ public class NettyConnector extends Connector {
 
         public void start() {
             EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-            EventLoopGroup workerGroup = new NioEventLoopGroup(connector.getLocalServer().getWorkerNum());
+            EventLoopGroup workerGroup = new NioEventLoopGroup(connector.localServer.getWorkerNum());
 
             serverBootstrap = new ServerBootstrap();
             serverBootstrap.group(bossGroup, workerGroup)
@@ -276,7 +307,7 @@ public class NettyConnector extends Connector {
                                 @Override
                                 public void channelActive(ChannelHandlerContext context) {
                                     Sender.this.context = context;
-                                    Handshake handshake = new Handshake(connector.getLocalServer().getId(), connector.receiver.ip, connector.receiver.port);
+                                    Handshake handshake = new Handshake(connector.localServer.getId(), connector.receiver.ip, connector.receiver.port);
                                     sendProtocol(handshake);
                                 }
 

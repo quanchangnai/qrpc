@@ -1,6 +1,7 @@
 package quan.rpc;
 
 import org.apache.commons.lang3.Validate;
+import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quan.message.CodedBuffer;
@@ -28,15 +29,20 @@ public class LocalServer {
 
     private final int id;
 
+    //刷帧的间隔时间(毫秒)
     private int updateInterval = 50;
 
+    //调用的超时时间(秒)
     private int callTtl = 10;
 
     private Function<CodedBuffer, ObjectReader> readerFactory = ObjectReader::new;
 
     private Function<CodedBuffer, ObjectWriter> writerFactory = ObjectWriter::new;
 
-    private Set<Connector> connectors = new HashSet<>();
+
+    private NettyConnector nettyConnector;
+
+    private RabbitConnector rabbitConnector;
 
     /**
      * 使用服务代理作为参数调用后返回目标服务器ID，如果目标服务器只有一个，可以省去每次构造服务代理都必需要传参的麻烦
@@ -57,15 +63,44 @@ public class LocalServer {
 
     private volatile boolean running;
 
-    public LocalServer(int id, int workerNum, Connector... connectors) {
+    public LocalServer(int id, int workerNum, NettyConnector nettyConnector, RabbitConnector rabbitConnector) {
         Validate.isTrue(id > 0, "服务器ID必须是正整数");
         this.id = id;
         this.initWorkers(workerNum);
-        this.initConnectors(connectors);
+
+        if (nettyConnector != null) {
+            nettyConnector.localServer = this;
+            this.nettyConnector = nettyConnector;
+        }
+
+        if (rabbitConnector != null) {
+            rabbitConnector.localServer = this;
+            this.rabbitConnector = rabbitConnector;
+        }
     }
 
-    public LocalServer(int id, Connector... connectors) {
-        this(id, 0, connectors);
+    public LocalServer(int id, int workerNum, NettyConnector nettyConnector) {
+        this(id, workerNum, nettyConnector, null);
+    }
+
+    public LocalServer(int id, int workerNum, RabbitConnector rabbitConnector) {
+        this(id, workerNum, null, rabbitConnector);
+    }
+
+    public LocalServer(int id, NettyConnector nettyConnector, RabbitConnector rabbitConnector) {
+        this(id, 0, nettyConnector, rabbitConnector);
+    }
+
+    public LocalServer(int id, NettyConnector nettyConnector) {
+        this(id, 0, nettyConnector, null);
+    }
+
+    public LocalServer(int id, RabbitConnector rabbitConnector) {
+        this(id, 0, null, rabbitConnector);
+    }
+
+    public LocalServer(int id) {
+        this(id, 0, null, null);
     }
 
     public final int getId() {
@@ -98,7 +133,7 @@ public class LocalServer {
     }
 
     /**
-     * 设置调用超时时间(秒)
+     * 设置调用的超时时间(秒)
      */
     public void setCallTtl(int callTtl) {
         if (callTtl > 0) {
@@ -128,18 +163,6 @@ public class LocalServer {
         return writerFactory;
     }
 
-    public Set<Connector> getConnectors() {
-        return connectors;
-    }
-
-    public Connector getConnector(int remoteId) {
-        for (Connector connector : connectors) {
-            if (connector.getRemoteIds().contains(remoteId)) {
-                return connector;
-            }
-        }
-        return null;
-    }
 
     /**
      * @see #targetServerIdResolver
@@ -174,38 +197,20 @@ public class LocalServer {
         return workers.get(workerId);
     }
 
-    private void initConnectors(Connector... connectors) {
-        if (connectors == null) {
-            this.connectors = Collections.emptySet();
-            return;
-        }
-
-        Set<Integer> allRemoteIds = new HashSet<>();
-        Set<Integer> duplicateRemoteIds = new HashSet<>();
-
-        for (Connector connector : connectors) {
-            this.connectors.add(connector);
-            connector.localServer = this;
-            for (Integer remoteId : connector.getRemoteIds()) {
-                if (!allRemoteIds.add(remoteId)) {
-                    duplicateRemoteIds.add(remoteId);
-                }
-            }
-        }
-
-        if (!duplicateRemoteIds.isEmpty()) {
-            throw new IllegalStateException(String.format("远程服务器%s重复了", duplicateRemoteIds));
-        }
-
-        this.connectors = Collections.unmodifiableSet(this.connectors);
-    }
 
     public synchronized void start() {
         try {
-            executor = Executors.newScheduledThreadPool(1);
+            BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("local-server-thread-%d").build();
+            executor = Executors.newScheduledThreadPool(1, threadFactory);
             executor.scheduleAtFixedRate(this::update, updateInterval, updateInterval, TimeUnit.MILLISECONDS);
             workers.values().forEach(Worker::start);
-            connectors.forEach(Connector::start);
+
+            if (nettyConnector != null) {
+                nettyConnector.start();
+            }
+            if (rabbitConnector != null) {
+                rabbitConnector.start();
+            }
         } finally {
             running = true;
         }
@@ -215,7 +220,14 @@ public class LocalServer {
         running = false;
         executor.shutdown();
         executor = null;
-        connectors.forEach(Connector::stop);
+
+        if (nettyConnector != null) {
+            nettyConnector.stop();
+        }
+        if (rabbitConnector != null) {
+            rabbitConnector.stop();
+        }
+
         workers.values().forEach(Worker::stop);
         workers = new HashMap<>();
         workerIds.clear();
@@ -228,21 +240,14 @@ public class LocalServer {
     protected void update() {
         if (running) {
             try {
-                connectors.forEach(Connector::update);
+                if (nettyConnector != null) {
+                    nettyConnector.update();
+                }
                 workers.values().forEach(Worker::tryUpdate);
             } catch (Exception e) {
                 logger.error("", e);
             }
         }
-    }
-
-    public final boolean hasRemote(int remoteId) {
-        return getConnector(remoteId) != null;
-    }
-
-    public final boolean isRemoteActivated(int remoteId) {
-        Connector connector = getConnector(remoteId);
-        return connector != null && connector.isRemoteActivated(remoteId);
     }
 
     public void addService(Service service) {
@@ -274,9 +279,10 @@ public class LocalServer {
     }
 
     protected void sendProtocol(int targetServerId, Protocol protocol) {
-        Connector connector = getConnector(targetServerId);
-        if (connector != null) {
-            connector.sendProtocol(targetServerId, protocol);
+        if (nettyConnector != null && nettyConnector.getRemoteIds().contains(targetServerId)) {
+            nettyConnector.sendProtocol(targetServerId, protocol);
+        } else if (rabbitConnector != null && rabbitConnector.checkRemoteId(targetServerId)) {
+            rabbitConnector.sendProtocol(targetServerId, protocol);
         } else {
             throw new IllegalArgumentException(String.format("远程服务器[%s]不存在", targetServerId));
         }
@@ -290,7 +296,11 @@ public class LocalServer {
             //本地服务器直接处理
             handleRequest(request, securityModifier);
         } else {
-            sendProtocol(targetServerId, request);
+            try {
+                sendProtocol(targetServerId, request);
+            } catch (Exception e) {
+                throw new CallException(String.format("发送协议到远程服务器[%s]出错", targetServerId), e);
+            }
         }
     }
 

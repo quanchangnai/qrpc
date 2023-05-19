@@ -7,7 +7,7 @@ import quan.rpc.protocol.Response;
  *
  * @author quanchangnai
  */
-public class CallException extends Exception {
+public class CallException extends RuntimeException {
 
     private long callId;
 
@@ -17,6 +17,10 @@ public class CallException extends Exception {
 
     public CallException(String message) {
         super(message);
+    }
+
+    public CallException(String message, Throwable cause) {
+        super(message, cause);
     }
 
     protected void setCallId(long callId) {
