@@ -8,7 +8,6 @@ import quan.message.CodedBuffer;
 import quan.message.DefaultCodedBuffer;
 import quan.rpc.protocol.Protocol;
 import quan.rpc.protocol.Request;
-import quan.rpc.protocol.Response;
 import quan.rpc.serialize.ObjectWriter;
 
 import java.io.IOException;
@@ -24,11 +23,9 @@ import java.util.function.Predicate;
  *
  * @author quanchangnai
  */
-public class RabbitConnector {
+public class RabbitConnector extends Connector {
 
     protected final static Logger logger = LoggerFactory.getLogger(RabbitConnector.class);
-
-    protected LocalServer localServer;
 
     private String namePrefix = "";
 
@@ -36,7 +33,7 @@ public class RabbitConnector {
 
     private Connection connection;
 
-    private Predicate<Integer> remoteIdChecker;
+    private Predicate<Integer> remoteChecker;
 
     private ThreadLocal<Channel> channelHolder;
 
@@ -67,8 +64,8 @@ public class RabbitConnector {
         this(connectionFactory, null);
     }
 
-    public void setRemoteIdChecker(Predicate<Integer> remoteIdChecker) {
-        this.remoteIdChecker = remoteIdChecker;
+    public void setRemoteChecker(Predicate<Integer> remoteChecker) {
+        this.remoteChecker = remoteChecker;
     }
 
     protected void start() {
@@ -127,9 +124,9 @@ public class RabbitConnector {
             Channel channel = connection.createChannel();
             channel.addShutdownListener(cause -> {
                 if (cause.isHardError()) {
-                    logger.error("rabbitmq connection shutdown", cause);
+                    logger.error("RabbitMQ connection shutdown", cause);
                 } else {
-                    logger.error("rabbitmq channel shutdown", cause);
+                    logger.error("RabbitMQ channel shutdown", cause);
                     executor.execute(this::getChannel);//保证至少有一个channel
                 }
             });
@@ -162,10 +159,12 @@ public class RabbitConnector {
         }
     }
 
-    protected boolean checkRemoteId(int remoteId) {
-        return remoteIdChecker == null || remoteIdChecker.test(remoteId);
+    @Override
+    protected boolean isLegalRemote(int remoteId) {
+        return remoteChecker == null || remoteChecker.test(remoteId);
     }
 
+    @Override
     protected void sendProtocol(int remoteId, Protocol protocol) {
         Worker worker = Worker.current();
         //异步发送，防止阻塞工作线程
@@ -187,16 +186,6 @@ public class RabbitConnector {
                 }
             }
         });
-    }
-
-    protected void handleProtocol(Protocol protocol) {
-        if (protocol instanceof Request) {
-            localServer.handleRequest((Request) protocol);
-        } else if (protocol instanceof Response) {
-            localServer.handleResponse((Response) protocol);
-        } else {
-            logger.error("收到非法RPC协议:{}", protocol);
-        }
     }
 
 }

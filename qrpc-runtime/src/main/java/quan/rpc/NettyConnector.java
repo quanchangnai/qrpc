@@ -31,18 +31,18 @@ import java.util.concurrent.TimeUnit;
  *
  * @author quanchangnai
  */
-public class NettyConnector {
-
+public class NettyConnector extends Connector {
 
     protected final static Logger logger = LoggerFactory.getLogger(NettyConnector.class);
-
-    protected LocalServer localServer;
 
     /**
      * 重连间隔时间(ms)
      */
     private int reconnectInterval = 5000;
 
+    /**
+     * 心跳间隔时间(ms)
+     */
     private int pingPongInterval = 5000;
 
     private final Receiver receiver;
@@ -57,7 +57,7 @@ public class NettyConnector {
 
     public void setReconnectInterval(int reconnectInterval) {
         if (reconnectInterval < 1000) {
-            throw new IllegalArgumentException("参数不能小于1000");
+            throw new IllegalArgumentException("重连间隔时间不能小于1000毫秒");
         }
         this.reconnectInterval = reconnectInterval;
     }
@@ -72,22 +72,25 @@ public class NettyConnector {
 
     public void setPingPongInterval(int pingPongInterval) {
         if (pingPongInterval < 1000) {
-            throw new IllegalArgumentException("参数不能小于1000");
+            throw new IllegalArgumentException("心跳间隔时间不能小于1000毫秒");
         }
         this.pingPongInterval = pingPongInterval;
     }
 
+    @Override
     protected void start() {
         receiver.start();
         senders.values().forEach(Sender::start);
     }
 
+    @Override
     protected void stop() {
         receiver.stop();
         senders.values().forEach(Sender::stop);
         senders.clear();
     }
 
+    @Override
     protected void update() {
         senders.values().forEach(Sender::update);
     }
@@ -120,17 +123,24 @@ public class NettyConnector {
         return remoteIds;
     }
 
-    public boolean isRemoteActivated(int remoteId) {
+    public boolean isActivatedRemote(int remoteId) {
         Sender sender = senders.get(remoteId);
         return sender != null && sender.context != null;
     }
 
+    @Override
+    protected boolean isLegalRemote(int remoteId) {
+        return remoteIds.contains(remoteId);
+    }
+
+    @Override
     protected void sendProtocol(int remoteId, Protocol protocol) {
         Sender sender = senders.get(remoteId);
-        if (sender == null) {
+        if (sender != null) {
+            sender.sendProtocol(protocol);
+        } else {
             throw new IllegalArgumentException(String.format("远程服务器[%s]不存在", remoteId));
         }
-        sender.sendProtocol(protocol);
     }
 
     protected void sendProtocol(ChannelHandlerContext context, Protocol protocol) {
@@ -220,12 +230,8 @@ public class NettyConnector {
                                     } else if (protocol instanceof PingPong) {
                                         connector.handlePingPong((PingPong) protocol);
                                         connector.sendProtocol(context, protocol);
-                                    } else if (protocol instanceof Request) {
-                                        connector.localServer.handleRequest((Request) protocol);
-                                    } else if (protocol instanceof Response) {
-                                        connector.localServer.handleResponse((Response) protocol);
                                     } else {
-                                        logger.error("收到非法RPC协议:{}", protocol);
+                                        connector.handleProtocol(protocol);
                                     }
                                 }
 

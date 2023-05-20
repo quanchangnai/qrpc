@@ -39,10 +39,7 @@ public class LocalServer {
 
     private Function<CodedBuffer, ObjectWriter> writerFactory = ObjectWriter::new;
 
-
-    private NettyConnector nettyConnector;
-
-    private RabbitConnector rabbitConnector;
+    private LinkedHashSet<Connector> connectors = new LinkedHashSet<>();
 
     /**
      * 使用服务代理作为参数调用后返回目标服务器ID，如果目标服务器只有一个，可以省去每次构造服务代理都必需要传参的麻烦
@@ -63,44 +60,28 @@ public class LocalServer {
 
     private volatile boolean running;
 
-    public LocalServer(int id, int workerNum, NettyConnector nettyConnector, RabbitConnector rabbitConnector) {
+    /**
+     * @param id         服务器ID
+     * @param workerNum  工作线程数量
+     * @param connectors 网络连接器，发送协议时 {@link #sendProtocol(int, Protocol)}越靠前越优先
+     */
+    public LocalServer(int id, int workerNum, Connector... connectors) {
         Validate.isTrue(id > 0, "服务器ID必须是正整数");
         this.id = id;
         this.initWorkers(workerNum);
 
-        if (nettyConnector != null) {
-            nettyConnector.localServer = this;
-            this.nettyConnector = nettyConnector;
-        }
-
-        if (rabbitConnector != null) {
-            rabbitConnector.localServer = this;
-            this.rabbitConnector = rabbitConnector;
+        for (Connector connector : connectors) {
+            connector.localServer = this;
+            this.connectors.add(connector);
         }
     }
 
-    public LocalServer(int id, int workerNum, NettyConnector nettyConnector) {
-        this(id, workerNum, nettyConnector, null);
-    }
-
-    public LocalServer(int id, int workerNum, RabbitConnector rabbitConnector) {
-        this(id, workerNum, null, rabbitConnector);
-    }
-
-    public LocalServer(int id, NettyConnector nettyConnector, RabbitConnector rabbitConnector) {
-        this(id, 0, nettyConnector, rabbitConnector);
-    }
-
-    public LocalServer(int id, NettyConnector nettyConnector) {
-        this(id, 0, nettyConnector, null);
-    }
-
-    public LocalServer(int id, RabbitConnector rabbitConnector) {
-        this(id, 0, null, rabbitConnector);
+    public LocalServer(int id, Connector... connectors) {
+        this(id, 0, connectors);
     }
 
     public LocalServer(int id) {
-        this(id, 0, null, null);
+        this(id, 0);
     }
 
     public final int getId() {
@@ -205,12 +186,7 @@ public class LocalServer {
             executor.scheduleAtFixedRate(this::update, updateInterval, updateInterval, TimeUnit.MILLISECONDS);
             workers.values().forEach(Worker::start);
 
-            if (nettyConnector != null) {
-                nettyConnector.start();
-            }
-            if (rabbitConnector != null) {
-                rabbitConnector.start();
-            }
+            connectors.forEach(Connector::start);
         } finally {
             running = true;
         }
@@ -221,12 +197,7 @@ public class LocalServer {
         executor.shutdown();
         executor = null;
 
-        if (nettyConnector != null) {
-            nettyConnector.stop();
-        }
-        if (rabbitConnector != null) {
-            rabbitConnector.stop();
-        }
+        connectors.forEach(Connector::stop);
 
         workers.values().forEach(Worker::stop);
         workers = new HashMap<>();
@@ -240,9 +211,7 @@ public class LocalServer {
     protected void update() {
         if (running) {
             try {
-                if (nettyConnector != null) {
-                    nettyConnector.update();
-                }
+                connectors.forEach(Connector::update);
                 workers.values().forEach(Worker::tryUpdate);
             } catch (Exception e) {
                 logger.error("", e);
@@ -278,14 +247,14 @@ public class LocalServer {
         worker.execute(() -> worker.doRemoveService(service));
     }
 
-    protected void sendProtocol(int targetServerId, Protocol protocol) {
-        if (nettyConnector != null && nettyConnector.getRemoteIds().contains(targetServerId)) {
-            nettyConnector.sendProtocol(targetServerId, protocol);
-        } else if (rabbitConnector != null && rabbitConnector.checkRemoteId(targetServerId)) {
-            rabbitConnector.sendProtocol(targetServerId, protocol);
-        } else {
-            throw new IllegalArgumentException(String.format("远程服务器[%s]不存在", targetServerId));
+    protected void sendProtocol(int remoteId, Protocol protocol) {
+        for (Connector connector : connectors) {
+            if (connector.isLegalRemote(remoteId)) {
+                connector.sendProtocol(remoteId, protocol);
+                return;
+            }
         }
+        throw new IllegalArgumentException(String.format("远程服务器[%s]不存在", remoteId));
     }
 
     /**
@@ -296,6 +265,7 @@ public class LocalServer {
             //本地服务器直接处理
             handleRequest(request, securityModifier);
         } else {
+            sendProtocol(targetServerId, request);
             try {
                 sendProtocol(targetServerId, request);
             } catch (Exception e) {
