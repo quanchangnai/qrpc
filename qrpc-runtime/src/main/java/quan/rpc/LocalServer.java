@@ -265,7 +265,6 @@ public class LocalServer {
             //本地服务器直接处理
             handleRequest(request, securityModifier);
         } else {
-            sendProtocol(targetServerId, request);
             try {
                 sendProtocol(targetServerId, request);
             } catch (Exception e) {
