@@ -3,8 +3,6 @@ package quan.rpc.protocol;
 import quan.rpc.serialize.ObjectReader;
 import quan.rpc.serialize.ObjectWriter;
 
-import java.util.Arrays;
-
 /**
  * 握手协议
  *
@@ -12,44 +10,57 @@ import java.util.Arrays;
  */
 public class Handshake extends Protocol {
 
-    /**
-     * 不同的连接器实现的握手参数可能不一样
-     */
-    private Object[] params;
+    private String ip;
+
+    private int port;
 
     protected Handshake() {
     }
 
-    public Handshake(int serverId, Object... params) {
+
+    public Handshake(int serverId, String ip, int port) {
         super(serverId);
-        this.params = params;
+        this.ip = ip;
+        this.port = port;
     }
 
-    public Object[] getParams() {
-        return params;
+    public String getIp() {
+        return ip;
     }
 
-    @SuppressWarnings("unchecked")
-    public <T> T getParam(int index) {
-        return (T) params[index];
+    public void setIp(String ip) {
+        this.ip = ip;
+    }
+
+    public int getPort() {
+        return port;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
     }
 
     @Override
     public void transferTo(ObjectWriter writer) {
         super.transferTo(writer);
-        writer.write(params);
+        writer.write(ip);
+        writer.write(port);
     }
 
     @Override
     public void transferFrom(ObjectReader reader) {
         super.transferFrom(reader);
-        params = reader.read();
+        ip = reader.read();
+        port = reader.read();
     }
+
 
     @Override
     public String toString() {
         return "Handshake{" +
-                "params=" + Arrays.toString(params) +
+                "serverId='" + getServerId() + '\'' +
+                "ip='" + ip + '\'' +
+                ", port='" + port + '\'' +
                 '}';
     }
 }

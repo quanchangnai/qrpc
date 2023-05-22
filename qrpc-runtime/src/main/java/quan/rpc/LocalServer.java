@@ -63,7 +63,7 @@ public class LocalServer {
     /**
      * @param id         服务器ID
      * @param workerNum  工作线程数量
-     * @param connectors 网络连接器，发送协议时 {@link #sendProtocol(int, Protocol)}越靠前越优先
+     * @param connectors 网络连接器，发送协议 {@link #sendProtocol(int, Protocol)}到远程服务器时越靠前的{@link Connector}优先级越高
      */
     public LocalServer(int id, int workerNum, Connector... connectors) {
         Validate.isTrue(id > 0, "服务器ID必须是正整数");
@@ -181,11 +181,10 @@ public class LocalServer {
 
     public synchronized void start() {
         try {
+            workers.values().forEach(Worker::start);
             BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("local-server-thread-%d").build();
             executor = Executors.newScheduledThreadPool(1, threadFactory);
             executor.scheduleAtFixedRate(this::update, updateInterval, updateInterval, TimeUnit.MILLISECONDS);
-            workers.values().forEach(Worker::start);
-
             connectors.forEach(Connector::start);
         } finally {
             running = true;
@@ -196,9 +195,7 @@ public class LocalServer {
         running = false;
         executor.shutdown();
         executor = null;
-
         connectors.forEach(Connector::stop);
-
         workers.values().forEach(Worker::stop);
         workers = new HashMap<>();
         workerIds.clear();
@@ -211,7 +208,6 @@ public class LocalServer {
     protected void update() {
         if (running) {
             try {
-                connectors.forEach(Connector::update);
                 workers.values().forEach(Worker::tryUpdate);
             } catch (Exception e) {
                 logger.error("", e);

@@ -2,8 +2,6 @@ package quan.rpc;
 
 import com.rabbitmq.client.*;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import quan.message.CodedBuffer;
 import quan.message.DefaultCodedBuffer;
 import quan.rpc.protocol.Protocol;
@@ -24,8 +22,6 @@ import java.util.function.Predicate;
  * @author quanchangnai
  */
 public class RabbitConnector extends Connector {
-
-    protected final static Logger logger = LoggerFactory.getLogger(RabbitConnector.class);
 
     private String namePrefix = "";
 

@@ -13,16 +13,13 @@ import quan.rpc.protocol.Response;
  */
 public abstract class Connector {
 
-    protected final static Logger logger = LoggerFactory.getLogger(RabbitConnector.class);
+    protected final Logger logger = LoggerFactory.getLogger(getClass());
 
     protected LocalServer localServer;
 
     protected abstract void start();
 
     protected abstract void stop();
-
-    protected void update() {
-    }
 
     protected abstract boolean isLegalRemote(int remoteId);
 
@@ -37,4 +34,5 @@ public abstract class Connector {
             logger.error("收到非法RPC协议:{}", protocol);
         }
     }
+
 }

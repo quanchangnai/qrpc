@@ -1,7 +1,7 @@
 package quan.rpc.protocol;
 
-import quan.rpc.serialize.ObjectWriter;
 import quan.rpc.serialize.ObjectReader;
+import quan.rpc.serialize.ObjectWriter;
 
 /**
  * @author quanchangnai
@@ -41,6 +41,7 @@ public class PingPong extends Protocol {
     @Override
     public String toString() {
         return "PingPong{" +
+                "serverId='" + getServerId() + '\'' +
                 "time=" + time +
                 '}';
     }
