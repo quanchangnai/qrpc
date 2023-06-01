@@ -27,7 +27,7 @@ public abstract class Service implements Executor {
     private Caller caller;
 
     /**
-     * 服务ID，在同一个{@link LocalServer}内必需保证唯一性，非单例服务应该覆盖此方法
+     * 服务ID，在同一个{@link Node}内必需保证唯一性，非单例服务应该覆盖此方法
      */
     public Object getId() {
         if (id != null) {

@@ -1,8 +1,8 @@
 package quan.rpc.test;
 
 import com.rabbitmq.client.ConnectionFactory;
-import quan.rpc.LocalServer;
 import quan.rpc.NettyConnector;
+import quan.rpc.Node;
 import quan.rpc.RabbitConnector;
 
 /**
@@ -21,10 +21,10 @@ public class RpcTest1 {
         connectionFactory.setPassword("guest");
         RabbitConnector rabbitConnector = new RabbitConnector(connectionFactory);
 
-        LocalServer localServer = new LocalServer(1, nettyConnector, rabbitConnector);
-        localServer.addService(new TestService1(1));
-        localServer.addService(new RoleService1<>(2));
-        localServer.start();
+        Node node = new Node(1, nettyConnector, rabbitConnector);
+        node.addService(new TestService1(1));
+        node.addService(new RoleService1<>(2));
+        node.start();
     }
 
 }

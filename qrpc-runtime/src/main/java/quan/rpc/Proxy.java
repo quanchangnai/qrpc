@@ -3,20 +3,20 @@ package quan.rpc;
 public abstract class Proxy {
 
     /**
-     * 目标服务器ID
+     * 目标节点ID
      */
-    private int serverId = -1;
+    private int nodeId = -1;
 
     /**
      * 目标服务ID
      */
     private final Object serviceId;
 
-    public Proxy(int serverId, Object serviceId) {
-        if (serverId < 0) {
-            throw new IllegalArgumentException("目标服务器ID不能小于0");
+    public Proxy(int nodeId, Object serviceId) {
+        if (nodeId < 0) {
+            throw new IllegalArgumentException("目标节点ID不能小于0");
         }
-        this.serverId = serverId;
+        this.nodeId = nodeId;
         this.serviceId = serviceId;
     }
 
@@ -32,10 +32,10 @@ public abstract class Proxy {
         if (worker == null) {
             throw new IllegalStateException("当前所处线程不合法");
         }
-        if (serverId < 0) {
-            serverId = worker.resolveTargetServerId(this);
+        if (nodeId < 0) {
+            nodeId = worker.resolveTargetNodeId(this);
         }
-        return worker.sendRequest(serverId, serviceId, signature, securityModifier, methodId, params);
+        return worker.sendRequest(nodeId, serviceId, signature, securityModifier, methodId, params);
     }
 
 }

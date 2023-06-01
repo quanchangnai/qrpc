@@ -15,7 +15,7 @@ public abstract class Connector {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
-    protected LocalServer localServer;
+    protected Node node;
 
     protected abstract void start();
 
@@ -27,9 +27,9 @@ public abstract class Connector {
 
     protected void handleProtocol(Protocol protocol) {
         if (protocol instanceof Request) {
-            localServer.handleRequest((Request) protocol);
+            node.handleRequest((Request) protocol);
         } else if (protocol instanceof Response) {
-            localServer.handleResponse((Response) protocol);
+            node.handleResponse((Response) protocol);
         } else {
             logger.error("收到非法RPC协议:{}", protocol);
         }

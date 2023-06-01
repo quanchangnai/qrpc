@@ -22,8 +22,8 @@ public class ${name}Proxy${typeParametersStr} extends Proxy{
     private static final String[] signatures = new String[${methods?size}];
 
 <#if !serviceId??>
-    public ${name}Proxy(int serverId, Object serviceId) {
-        super(serverId, serviceId);
+    public ${name}Proxy(int nodeId, Object serviceId) {
+        super(nodeId, serviceId);
     }
 
     public ${name}Proxy(Object serviceId) {
@@ -31,8 +31,8 @@ public class ${name}Proxy${typeParametersStr} extends Proxy{
     }
 
 <#else>
-    public ${name}Proxy(int serverId) {
-        super(serverId, "${serviceId}");
+    public ${name}Proxy(int nodeId) {
+        super(nodeId, "${serviceId}");
     }
 
     public ${name}Proxy() {

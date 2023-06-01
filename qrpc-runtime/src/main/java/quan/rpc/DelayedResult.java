@@ -9,7 +9,7 @@ import java.util.Objects;
  */
 public final class DelayedResult<R> extends Promise<R> {
 
-    private int originServerId;
+    private int originNodeId;
 
     //服务方法参数或返回结果的安全修饰符
     private int securityModifier;
@@ -18,12 +18,12 @@ public final class DelayedResult<R> extends Promise<R> {
        super(worker);
     }
 
-    int getOriginServerId() {
-        return originServerId;
+    int getOriginNodeId() {
+        return originNodeId;
     }
 
-    void setOriginServerId(int originServerId) {
-        this.originServerId = originServerId;
+    void setOriginNodeId(int originNodeId) {
+        this.originNodeId = originNodeId;
     }
 
     int getSecurityModifier() {
@@ -51,7 +51,7 @@ public final class DelayedResult<R> extends Promise<R> {
             logger.error("", e);
         }
 
-        if (originServerId > 0) {
+        if (originNodeId > 0) {
             this.worker.handleDelayedResult(this);
         }
     }
@@ -74,7 +74,7 @@ public final class DelayedResult<R> extends Promise<R> {
             logger.error("", e);
         }
 
-        if (originServerId > 0) {
+        if (originNodeId > 0) {
             this.worker.handleDelayedResult(this);
         }
     }

@@ -39,7 +39,7 @@ public class RabbitConnector extends Connector {
      * 构造基于基于RabbitMQ的网络连接器
      *
      * @param connectionFactory RabbitMQ连接工厂
-     * @param namePrefix        RabbitMQ交换机和队列的名称前缀，需要互连的服务器一定要保持一致
+     * @param namePrefix        RabbitMQ交换机和队列的名称前缀，需要互连的节点一定要保持一致
      */
     public RabbitConnector(ConnectionFactory connectionFactory, String namePrefix) {
         connectionFactory.useNio();
@@ -66,7 +66,7 @@ public class RabbitConnector extends Connector {
 
     protected void start() {
         BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("rabbit-connector-thread-%d").build();
-        executor = Executors.newScheduledThreadPool(localServer.getWorkerNum(), threadFactory);
+        executor = Executors.newScheduledThreadPool(node.getWorkerNum(), threadFactory);
         channelHolder = ThreadLocal.withInitial(this::initChannel);
         executor.execute(this::connect);
     }
@@ -95,12 +95,12 @@ public class RabbitConnector extends Connector {
         getChannel();
     }
 
-    protected String exchangeName(int serverId) {
-        return namePrefix + serverId;
+    protected String exchangeName(int nodeId) {
+        return namePrefix + nodeId;
     }
 
-    protected String queueName(int serverId) {
-        return namePrefix + serverId;
+    protected String queueName(int nodeId) {
+        return namePrefix + nodeId;
     }
 
     private Channel getChannel() {
@@ -127,12 +127,12 @@ public class RabbitConnector extends Connector {
                 }
             });
 
-            String exchangeName = exchangeName(localServer.getId());
+            String exchangeName = exchangeName(node.getId());
             channel.exchangeDeclare(exchangeName, BuiltinExchangeType.DIRECT, false, true, null);
 
-            String queueName = queueName(localServer.getId());
+            String queueName = queueName(node.getId());
             Map<String, Object> queueArgs = new HashMap<>();
-            queueArgs.put("x-message-ttl", localServer.getCallTtl() * 1000);//设置队列里消息的过期时间
+            queueArgs.put("x-message-ttl", node.getCallTtl() * 1000);//设置队列里消息的过期时间
             channel.queueDeclare(queueName, false, true, true, queueArgs);
             channel.queueBind(queueName, exchangeName, "");
 
@@ -141,7 +141,7 @@ public class RabbitConnector extends Connector {
                 public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) {
                     try {
                         CodedBuffer buffer = new DefaultCodedBuffer(body);
-                        Protocol protocol = localServer.getReaderFactory().apply(buffer).read();
+                        Protocol protocol = node.getReaderFactory().apply(buffer).read();
                         handleProtocol(protocol);
                     } catch (Exception e) {
                         logger.error("处理协议出错", e);
@@ -167,14 +167,14 @@ public class RabbitConnector extends Connector {
         executor.execute(() -> {
             try {
                 CodedBuffer buffer = new DefaultCodedBuffer();
-                ObjectWriter objectWriter = localServer.getWriterFactory().apply(buffer);
+                ObjectWriter objectWriter = node.getWriterFactory().apply(buffer);
                 objectWriter.write(protocol);
 
                 //exchange不存在时不会报错，会异步关闭channel
                 getChannel().basicPublish(exchangeName(remoteId), "", null, buffer.remainingBytes());
             } catch (Exception e) {
                 if (protocol instanceof Request) {
-                    CallException callException = new CallException(String.format("发送协议到远程服务器[%s]出错", remoteId), e);
+                    CallException callException = new CallException(String.format("发送协议到远程节点[%s]出错", remoteId), e);
                     long callId = ((Request) protocol).getCallId();
                     worker.execute(() -> worker.handlePromise(callId, callException, null));
                 } else {

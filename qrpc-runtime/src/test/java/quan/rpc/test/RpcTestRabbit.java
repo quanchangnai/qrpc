@@ -1,7 +1,7 @@
 package quan.rpc.test;
 
 import com.rabbitmq.client.ConnectionFactory;
-import quan.rpc.LocalServer;
+import quan.rpc.Node;
 import quan.rpc.RabbitConnector;
 
 /**
@@ -19,9 +19,9 @@ public class RpcTestRabbit {
 
 
         RabbitConnector rabbitConnector = new RabbitConnector(connectionFactory);
-        LocalServer localServer = new LocalServer(3, 5, rabbitConnector);
-        localServer.addService(new TestService2(2));
-        localServer.start();
+        Node node = new Node(3, 5, rabbitConnector);
+        node.addService(new TestService2(2));
+        node.start();
     }
 
 }

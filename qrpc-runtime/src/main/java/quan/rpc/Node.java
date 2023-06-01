@@ -19,11 +19,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
- * 本地服务器
+ * RPC节点
  *
  * @author quanchangnai
  */
-public class LocalServer {
+public class Node {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
@@ -42,9 +42,9 @@ public class LocalServer {
     private LinkedHashSet<Connector> connectors = new LinkedHashSet<>();
 
     /**
-     * 使用服务代理作为参数调用后返回目标服务器ID，如果目标服务器只有一个，可以省去每次构造服务代理都必需要传参的麻烦
+     * 使用服务代理作为参数调用后返回目标节点ID，如果目标节点只有一个，可以省去每次构造服务代理都必需要传参的麻烦
      */
-    private Function<Proxy, Integer> targetServerIdResolver;
+    private Function<Proxy, Integer> targetNodeIdResolver;
 
     //管理的所有工作线程，key:工作线程ID
     private Map<Integer, Worker> workers = new HashMap<>();
@@ -61,26 +61,26 @@ public class LocalServer {
     private volatile boolean running;
 
     /**
-     * @param id         服务器ID
+     * @param id         节点ID
      * @param workerNum  工作线程数量
-     * @param connectors 网络连接器，发送协议 {@link #sendProtocol(int, Protocol)}到远程服务器时越靠前的{@link Connector}优先级越高
+     * @param connectors 网络连接器，发送协议 {@link #sendProtocol(int, Protocol)}到远程节点时越靠前的{@link Connector}优先级越高
      */
-    public LocalServer(int id, int workerNum, Connector... connectors) {
-        Validate.isTrue(id > 0, "服务器ID必须是正整数");
+    public Node(int id, int workerNum, Connector... connectors) {
+        Validate.isTrue(id > 0, "节点ID必须是正整数");
         this.id = id;
         this.initWorkers(workerNum);
 
         for (Connector connector : connectors) {
-            connector.localServer = this;
+            connector.node = this;
             this.connectors.add(connector);
         }
     }
 
-    public LocalServer(int id, Connector... connectors) {
+    public Node(int id, Connector... connectors) {
         this(id, 0, connectors);
     }
 
-    public LocalServer(int id) {
+    public Node(int id) {
         this(id, 0);
     }
 
@@ -146,14 +146,14 @@ public class LocalServer {
 
 
     /**
-     * @see #targetServerIdResolver
+     * @see #targetNodeIdResolver
      */
-    public void setTargetServerIdResolver(Function<Proxy, Integer> targetServerIdResolver) {
-        this.targetServerIdResolver = targetServerIdResolver;
+    public void setTargetNodeIdResolver(Function<Proxy, Integer> targetNodeIdResolver) {
+        this.targetNodeIdResolver = targetNodeIdResolver;
     }
 
-    public Function<Proxy, Integer> getTargetServerIdResolver() {
-        return targetServerIdResolver;
+    public Function<Proxy, Integer> getTargetNodeIdResolver() {
+        return targetNodeIdResolver;
     }
 
     private void initWorkers(int workerNum) {
@@ -179,10 +179,10 @@ public class LocalServer {
     }
 
 
-    public synchronized void start() {
+    public void start() {
         try {
             workers.values().forEach(Worker::start);
-            BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("local-server-thread-%d").build();
+            BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("node-thread-%d").build();
             executor = Executors.newScheduledThreadPool(1, threadFactory);
             executor.scheduleAtFixedRate(this::update, updateInterval, updateInterval, TimeUnit.MILLISECONDS);
             connectors.forEach(Connector::start);
@@ -191,7 +191,7 @@ public class LocalServer {
         }
     }
 
-    public synchronized void stop() {
+    public void stop() {
         running = false;
         executor.shutdown();
         executor = null;
@@ -221,7 +221,7 @@ public class LocalServer {
 
     public void addService(Worker worker, Service service) {
         if (workers.get(worker.getId()) != worker) {
-            throw new IllegalArgumentException(String.format("参数[worker]不是服务器[%s]管理的工作线程", this.id));
+            throw new IllegalArgumentException(String.format("参数[worker]不是节点[%s]管理的工作线程", this.id));
         }
 
         Object serviceId = Objects.requireNonNull(service.getId(), "服务ID不能为空");
@@ -250,21 +250,21 @@ public class LocalServer {
                 return;
             }
         }
-        throw new IllegalArgumentException(String.format("远程服务器[%s]不存在", remoteId));
+        throw new IllegalArgumentException(String.format("远程节点[%s]不存在", remoteId));
     }
 
     /**
      * 发送RPC请求
      */
-    protected void sendRequest(int targetServerId, Request request, int securityModifier) {
-        if (targetServerId == this.id || targetServerId == 0) {
-            //本地服务器直接处理
+    protected void sendRequest(int targetNodeId, Request request, int securityModifier) {
+        if (targetNodeId == this.id || targetNodeId == 0) {
+            //本地节点直接处理
             handleRequest(request, securityModifier);
         } else {
             try {
-                sendProtocol(targetServerId, request);
+                sendProtocol(targetNodeId, request);
             } catch (Exception e) {
-                throw new CallException(String.format("发送协议到远程服务器[%s]出错", targetServerId), e);
+                throw new CallException(String.format("发送协议到远程节点[%s]出错", targetNodeId), e);
             }
         }
     }
@@ -289,12 +289,12 @@ public class LocalServer {
     /**
      * 发送RPC响应
      */
-    protected void sendResponse(int targetServerId, Response response) {
-        if (targetServerId == this.id) {
-            //本地服务器直接处理
+    protected void sendResponse(int targetNodeId, Response response) {
+        if (targetNodeId == this.id) {
+            //本地节点直接处理
             handleResponse(response);
         } else {
-            sendProtocol(targetServerId, response);
+            sendProtocol(targetNodeId, response);
         }
     }
 
@@ -306,7 +306,7 @@ public class LocalServer {
         int workerId = (int) (callId >> 32);
         Worker worker = workers.get(workerId);
         if (worker == null) {
-            logger.error("处理RPC响应，工作线程[{}]不存在，originServerId:{}，callId:{}", workerId, response.getServerId(), callId);
+            logger.error("处理RPC响应，工作线程[{}]不存在，originNodeId:{}，callId:{}", workerId, response.getOriginNodeId(), callId);
         } else {
             worker.execute(() -> worker.handleResponse(response));
         }

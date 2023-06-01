@@ -11,17 +11,17 @@ import quan.rpc.serialize.TransferableRegistry;
 public abstract class Protocol implements Transferable {
 
     /**
-     * 来源服务器ID
+     * 来源节点ID
      */
-    private int serverId;
+    private int originNodeId;
 
     private static volatile TransferableRegistry registry;
 
     public Protocol() {
     }
 
-    public Protocol(int serverId) {
-        this.serverId = serverId;
+    public Protocol(int originNodeId) {
+        this.originNodeId = originNodeId;
     }
 
     public static TransferableRegistry getRegistry() {
@@ -40,20 +40,20 @@ public abstract class Protocol implements Transferable {
     }
 
     /**
-     * @see #serverId
+     * @see #originNodeId
      */
-    public int getServerId() {
-        return serverId;
+    public int getOriginNodeId() {
+        return originNodeId;
     }
 
     @Override
     public void transferTo(ObjectWriter writer) {
-        writer.write(serverId);
+        writer.write(originNodeId);
     }
 
     @Override
     public void transferFrom(ObjectReader reader) {
-        serverId = reader.read();
+        originNodeId = reader.read();
     }
 
 }

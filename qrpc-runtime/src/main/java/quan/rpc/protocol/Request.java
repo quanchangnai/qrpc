@@ -35,8 +35,8 @@ public class Request extends Protocol {
     protected Request() {
     }
 
-    public Request(int serverId, Object serviceId, int methodId, Object... params) {
-        super(serverId);
+    public Request(int originNodeId, Object serviceId, int methodId, Object... params) {
+        super(originNodeId);
         this.serviceId = serviceId;
         this.methodId = methodId;
         this.params = params;
@@ -83,7 +83,7 @@ public class Request extends Protocol {
     @Override
     public String toString() {
         return "Request{" +
-                "serverId='" + getServerId() + '\'' +
+                "originNodeId='" + getOriginNodeId() + '\'' +
                 "callId=" + callId +
                 ", serviceId=" + serviceId +
                 ", methodId=" + methodId +

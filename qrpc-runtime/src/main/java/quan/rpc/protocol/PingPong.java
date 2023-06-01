@@ -13,8 +13,8 @@ public class PingPong extends Protocol {
     protected PingPong() {
     }
 
-    public PingPong(int serverId,long time) {
-        super(serverId);
+    public PingPong(int originNodeId,long time) {
+        super(originNodeId);
         this.time = time;
     }
 
@@ -41,7 +41,7 @@ public class PingPong extends Protocol {
     @Override
     public String toString() {
         return "PingPong{" +
-                "serverId='" + getServerId() + '\'' +
+                "originNodeId='" + getOriginNodeId() + '\'' +
                 "time=" + time +
                 '}';
     }

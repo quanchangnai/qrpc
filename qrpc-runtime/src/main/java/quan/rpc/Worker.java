@@ -32,7 +32,7 @@ public class Worker implements Executor {
 
     private volatile boolean running;
 
-    private final LocalServer server;
+    private final Node node;
 
     private Thread thread;
 
@@ -63,8 +63,8 @@ public class Worker implements Executor {
 
     private ObjectReader reader;
 
-    protected Worker(LocalServer server) {
-        this.server = server;
+    protected Worker(Node node) {
+        this.node = node;
     }
 
     public static Worker current() {
@@ -75,12 +75,12 @@ public class Worker implements Executor {
         return id;
     }
 
-    public LocalServer getServer() {
-        return server;
+    public Node getNode() {
+        return node;
     }
 
     public void addService(Service service) {
-        server.addService(this, service);
+        node.addService(this, service);
     }
 
     protected void doAddService(Service service) {
@@ -106,7 +106,7 @@ public class Worker implements Executor {
         if (!allServices.containsKey(serviceId)) {
             logger.error("服务[{}]不存在", serviceId);
         } else {
-            server.removeService(serviceId);
+            node.removeService(serviceId);
         }
     }
 
@@ -183,7 +183,7 @@ public class Worker implements Executor {
 
         long currentTime = System.currentTimeMillis();
         long intervalTime = currentTime - updateTime;
-        if (intervalTime > getServer().getUpdateInterval() * 2L && currentTime - stackTraceTime > 10000 && updateTime > 0) {
+        if (intervalTime > getNode().getUpdateInterval() * 2L && currentTime - stackTraceTime > 10000 && updateTime > 0) {
             stackTraceTime = currentTime;
             StringBuilder stackTrace = new StringBuilder();
             for (StackTraceElement traceElement : thread.getStackTrace()) {
@@ -208,7 +208,7 @@ public class Worker implements Executor {
         expireDelayedResults();
 
         long costTime = System.currentTimeMillis() - updateTime;
-        if (costTime > getServer().getUpdateInterval()) {
+        if (costTime > getNode().getUpdateInterval()) {
             logger.error("工作线程[{}]帧率过低，本次刷帧消耗时间{}ms", id, costTime);
         }
 
@@ -249,31 +249,31 @@ public class Worker implements Executor {
         }
     }
 
-    protected int resolveTargetServerId(Proxy proxy) {
-        Function<Proxy, Integer> targetServerIdResolver = server.getTargetServerIdResolver();
-        if (targetServerIdResolver != null) {
-            return targetServerIdResolver.apply(proxy);
+    protected int resolveTargetNodeId(Proxy proxy) {
+        Function<Proxy, Integer> targetNodeIdResolver = node.getTargetNodeIdResolver();
+        if (targetNodeIdResolver != null) {
+            return targetNodeIdResolver.apply(proxy);
         } else {
             return 0;
         }
     }
 
-    protected <R> Promise<R> sendRequest(int targetServerId, Object serviceId, String signature, int securityModifier, int methodId, Object... params) {
+    protected <R> Promise<R> sendRequest(int targetNodeId, Object serviceId, String signature, int securityModifier, int methodId, Object... params) {
         long callId = (long) this.id << 32 | nextCallId++;
         if (nextCallId < 0) {
             nextCallId = 1;
         }
 
-        makeParamSafe(targetServerId, securityModifier, params);
+        makeParamSafe(targetNodeId, securityModifier, params);
 
-        Request request = new Request(server.getId(), serviceId, methodId, params);
+        Request request = new Request(node.getId(), serviceId, methodId, params);
         request.setCallId(callId);
 
         Promise<Object> promise = new Promise<>(callId, signature, this);
         boolean sendError = false;
 
         try {
-            server.sendRequest(targetServerId, request, securityModifier);
+            node.sendRequest(targetNodeId, request, securityModifier);
         } catch (Exception e) {
             sendError = true;
             execute(() -> promise.setException(e));
@@ -291,8 +291,8 @@ public class Worker implements Executor {
     protected Object clone(Object object) {
         if (writer == null) {
             CodedBuffer buffer = new DefaultCodedBuffer();
-            writer = server.getWriterFactory().apply(buffer);
-            reader = server.getReaderFactory().apply(buffer);
+            writer = node.getWriterFactory().apply(buffer);
+            reader = node.getReaderFactory().apply(buffer);
         } else {
             writer.getBuffer().clear();
         }
@@ -305,8 +305,8 @@ public class Worker implements Executor {
      *
      * @param securityModifier 1:标记所有参数都是安全的，参考 {@link Endpoint#paramSafe()}
      */
-    protected void makeParamSafe(int targetServerId, int securityModifier, Object[] params) {
-        if (targetServerId != 0 && targetServerId != this.server.getId()) {
+    protected void makeParamSafe(int targetNodeId, int securityModifier, Object[] params) {
+        if (targetNodeId != 0 && targetNodeId != this.node.getId()) {
             return;
         }
 
@@ -327,8 +327,8 @@ public class Worker implements Executor {
      *
      * @param securityModifier 2:标记返回结果是安全的，参考 {@link Endpoint#resultSafe()}
      */
-    protected Object makeResultSafe(int originServerId, int securityModifier, Object result) {
-        if (originServerId != this.server.getId()) {
+    protected Object makeResultSafe(int originNodeId, int securityModifier, Object result) {
+        if (originNodeId != this.node.getId()) {
             return result;
         }
 
@@ -340,7 +340,7 @@ public class Worker implements Executor {
     }
 
     protected void handleRequest(Request request, int securityModifier) {
-        int originServerId = request.getServerId();
+        int originNodeId = request.getOriginNodeId();
         long callId = request.getCallId();
         Object serviceId = request.getServiceId();
         Object result = null;
@@ -348,7 +348,7 @@ public class Worker implements Executor {
 
         Service service = allServices.get(serviceId);
         if (service == null) {
-            logger.error("处理RPC请求，服务[{}]不存在，originServerId:{}，callId:{}", serviceId, originServerId, callId);
+            logger.error("处理RPC请求，服务[{}]不存在，originNodeId:{}，callId:{}", serviceId, originNodeId, callId);
             return;
         }
 
@@ -356,34 +356,34 @@ public class Worker implements Executor {
             result = service.call(request.getMethodId(), request.getParams());
         } catch (Throwable e) {
             exception = e.toString();
-            logger.error("处理RPC请求，方法执行异常，originServerId:{}，callId:{}", originServerId, callId, e);
+            logger.error("处理RPC请求，方法执行异常，originNodeId:{}，callId:{}", originNodeId, callId, e);
         }
 
         if (result instanceof DelayedResult) {
             DelayedResult<?> delayedResult = (DelayedResult<?>) result;
             if (!delayedResult.isFinished()) {
                 delayedResult.setCallId(callId);
-                delayedResult.setOriginServerId(originServerId);
+                delayedResult.setOriginNodeId(originNodeId);
                 delayedResult.setSecurityModifier(securityModifier);
                 return;
             } else {
                 exception = delayedResult.getExceptionStr();
                 if (exception == null) {
-                    result = makeResultSafe(originServerId, securityModifier, delayedResult.getResult());
+                    result = makeResultSafe(originNodeId, securityModifier, delayedResult.getResult());
                 }
             }
         }
 
-        Response response = new Response(server.getId(), callId, result, exception);
-        server.sendResponse(originServerId, response);
+        Response response = new Response(node.getId(), callId, result, exception);
+        node.sendResponse(originNodeId, response);
     }
 
     @SuppressWarnings("rawtypes")
     protected void handleDelayedResult(DelayedResult delayedResult) {
-        int originServerId = delayedResult.getOriginServerId();
-        Object result = makeResultSafe(originServerId, delayedResult.getSecurityModifier(), delayedResult.getResult());
-        Response response = new Response(server.getId(), delayedResult.getCallId(), result, delayedResult.getExceptionStr());
-        server.sendResponse(originServerId, response);
+        int originNodeId = delayedResult.getOriginNodeId();
+        Object result = makeResultSafe(originNodeId, delayedResult.getSecurityModifier(), delayedResult.getResult());
+        Response response = new Response(node.getId(), delayedResult.getCallId(), result, delayedResult.getExceptionStr());
+        node.sendResponse(originNodeId, response);
     }
 
     protected void handleResponse(Response response) {

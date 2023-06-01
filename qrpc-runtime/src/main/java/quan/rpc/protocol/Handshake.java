@@ -18,8 +18,8 @@ public class Handshake extends Protocol {
     }
 
 
-    public Handshake(int serverId, String ip, int port) {
-        super(serverId);
+    public Handshake(int originNodeId, String ip, int port) {
+        super(originNodeId);
         this.ip = ip;
         this.port = port;
     }
@@ -58,7 +58,7 @@ public class Handshake extends Protocol {
     @Override
     public String toString() {
         return "Handshake{" +
-                "serverId='" + getServerId() + '\'' +
+                "originNodeId='" + getOriginNodeId() + '\'' +
                 "ip='" + ip + '\'' +
                 ", port='" + port + '\'' +
                 '}';

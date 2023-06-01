@@ -25,8 +25,8 @@ public class Response extends Protocol {
     protected Response() {
     }
 
-    public Response(int serverId, long callId, Object result, String exception) {
-        super(serverId);
+    public Response(int originNodeId, long callId, Object result, String exception) {
+        super(originNodeId);
         this.callId = callId;
         this.result = result;
         this.exception = exception;
@@ -63,7 +63,7 @@ public class Response extends Protocol {
     @Override
     public String toString() {
         return "Response{" +
-                "serverId='" + getServerId() + '\'' +
+                "originNodeId='" + getOriginNodeId() + '\'' +
                 "callId=" + callId +
                 ", result=" + result +
                 ", exception='" + exception + '\'' +
