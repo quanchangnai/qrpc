@@ -119,11 +119,16 @@ public class RabbitConnector extends Connector {
         try {
             Channel channel = connection.createChannel();
             channel.addShutdownListener(cause -> {
-                if (cause.isHardError()) {
-                    logger.error("RabbitMQ connection shutdown", cause);
-                } else {
-                    logger.error("RabbitMQ channel shutdown", cause);
-                    executor.execute(this::getChannel);//保证至少有一个channel
+                boolean connectionClose = cause.getReason() instanceof AMQP.Connection.Close;
+                if (!cause.isHardError()) {
+                    if (!connectionClose) {
+                        logger.error("RabbitMQ channel shutdown, reason:{}", cause.getReason(), cause);
+                    } else {
+                        //保证至少有一个channel
+                        executor.execute(this::getChannel);
+                    }
+                } else if (!connectionClose) {
+                    logger.error("RabbitMQ connection shutdown,reason:{}", cause.getReason(), cause);
                 }
             });
 

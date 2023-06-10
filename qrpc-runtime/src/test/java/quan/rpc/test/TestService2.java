@@ -2,15 +2,17 @@ package quan.rpc.test;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quan.rpc.Endpoint;
-import quan.rpc.UpdatableService;
 import quan.rpc.DelayedResult;
+import quan.rpc.Endpoint;
 import quan.rpc.Promise;
+import quan.rpc.UpdatableService;
 
 import java.util.List;
 import java.util.Map;
 
 /**
+ * 测试服务2
+ *
  * @author quanchangnai
  */
 public class TestService2 extends UpdatableService {
@@ -79,7 +81,7 @@ public class TestService2 extends UpdatableService {
         }
         lastTime = now;
 
-        logger.info("TestService2:{} call TestService1 at Worker:{}", this.id,  this.getWorker().getId());
+        logger.info("TestService2:{} call TestService1 at Worker:{}", this.id, this.getWorker().getId());
 
         int a = (int) (now % 3);
         int b = (int) (now % 10);

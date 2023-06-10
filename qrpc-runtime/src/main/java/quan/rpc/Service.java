@@ -45,7 +45,7 @@ public abstract class Service implements Executor {
         return worker;
     }
 
-    final Object call(int methodId, Object... params) throws Exception {
+    final Object call(int methodId, Object... params) throws Throwable {
         if (caller == null) {
             Class<?> callerClass = Class.forName(getClass().getName() + "Caller");
             this.caller = (Caller) callerClass.getField("instance").get(callerClass);
@@ -54,12 +54,33 @@ public abstract class Service implements Executor {
     }
 
     /**
-     * 在服务所属的工作线程中执行任务
+     * 执行任务
      */
     @SuppressWarnings("NullableProblems")
     @Override
     public final void execute(Runnable task) {
         worker.execute(task);
+    }
+
+    /**
+     * 在下一帧执行任务
+     */
+    public void schedule(Runnable task) {
+        worker.schedule(task);
+    }
+
+    /**
+     * 延迟执行任务
+     */
+    public void schedule(Runnable task, long delay) {
+        worker.schedule(task, delay);
+    }
+
+    /**
+     * 周期性执行任务
+     */
+    public void schedule(Runnable task, long delay, long period) {
+        worker.schedule(task, delay, period);
     }
 
     public final <R> DelayedResult<R> newDelayedResult() {

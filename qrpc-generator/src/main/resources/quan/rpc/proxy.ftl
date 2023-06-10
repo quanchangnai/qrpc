@@ -10,13 +10,11 @@ import ${imports[importKey]};
 <#list comments as comment>
  *${comment}
 </#list>
- *<#if !customPath> @see<#elseif comments?size gt 0> <br/></#if> ${name}
+ *<#if !customPath> 
+ * @see<#elseif comments?size gt 0> <br/></#if> ${name}
  */
 public class ${name}Proxy${typeParametersStr} extends Proxy{
 
-    /**
-     * 服务类名
-     */
     private static final String SERVICE_NAME = "${fullName}";
 
     private static final String[] signatures = new String[${methods?size}];
@@ -24,6 +22,10 @@ public class ${name}Proxy${typeParametersStr} extends Proxy{
 <#if !serviceId??>
     public ${name}Proxy(int nodeId, Object serviceId) {
         super(nodeId, serviceId);
+    }
+
+    public ${name}Proxy(NodeIdResolver nodeIdResolver, Object serviceId) {
+        super(nodeIdResolver, serviceId);
     }
 
     public ${name}Proxy(Object serviceId) {
@@ -35,6 +37,10 @@ public class ${name}Proxy${typeParametersStr} extends Proxy{
         super(nodeId, "${serviceId}");
     }
 
+    public ${name}Proxy(NodeIdResolver nodeIdResolver) {
+        super(nodeIdResolver, "${serviceId}");
+    }
+
     public ${name}Proxy() {
         super("${serviceId}");
     }
@@ -42,6 +48,9 @@ public class ${name}Proxy${typeParametersStr} extends Proxy{
     public static final ${name}Proxy instance = new ${name}Proxy();
 
 </#if>
+    /**
+     * 对应服务的类名
+     */
     @Override
     public String _getServiceName$() {
         return SERVICE_NAME;
@@ -54,7 +63,7 @@ public class ${name}Proxy${typeParametersStr} extends Proxy{
     </#list>
      *<#if !customPath> @see<#elseif  method.comments?size gt 0> <br/></#if> ${name}#${method.signature}
      */
-    public final ${method.typeParametersStr}Promise<${method.optimizedReturnType}> ${method.name}(<#rt>
+    public final <#if method.typeParametersStr!="">${method.typeParametersStr} </#if>Promise<${method.optimizedReturnType}> ${method.name}(<#rt>
     <#list method.optimizedParameters?keys as paramName>
         ${method.optimizedParameters[paramName]} ${paramName}<#if paramName?has_next>, </#if><#t>
     </#list>

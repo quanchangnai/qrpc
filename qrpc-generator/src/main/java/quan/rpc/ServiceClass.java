@@ -173,6 +173,7 @@ public class ServiceClass extends ServiceElement {
         imports.put("Promise", "quan.rpc.Promise");
         imports.put("Worker", "quan.rpc.Worker");
         imports.put("Proxy", "quan.rpc.Proxy");
+        imports.put("NodeIdResolver", "quan.rpc.NodeIdResolver");
         imports.put("Object", "-java.lang.Object");
         imports.put(name, "-" + fullName);
         imports.put(name + "Proxy", "-" + fullName + "Proxy");

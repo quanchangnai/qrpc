@@ -3,13 +3,13 @@ package quan.rpc.test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quan.rpc.Endpoint;
-import quan.rpc.UpdatableService;
 import quan.rpc.Promise;
+import quan.rpc.UpdatableService;
 
 import java.util.*;
 
 /**
- * run
+ * 测试服务1
  */
 public class TestService1 extends UpdatableService {
 

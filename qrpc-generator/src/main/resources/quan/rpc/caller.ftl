@@ -17,7 +17,7 @@ public final class ${name}Caller extends Caller {
     }
 
     @Override
-    public Object call(Service service, int methodId, Object... params) throws Exception {
+    public Object call(Service service, int methodId, Object... params) throws Throwable {
         ${name} ${name?uncap_first} = (${name}) service;
         switch (methodId) {
         <#list methods as method>

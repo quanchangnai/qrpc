@@ -1,7 +1,6 @@
 package quan.rpc;
 
 import org.apache.commons.lang3.Validate;
-import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quan.message.CodedBuffer;
@@ -32,6 +31,8 @@ public class Node {
     //刷帧的间隔时间(毫秒)
     private int updateInterval = 50;
 
+    private long updateTime;
+
     //调用的超时时间(秒)
     private int callTtl = 10;
 
@@ -41,10 +42,7 @@ public class Node {
 
     private LinkedHashSet<Connector> connectors = new LinkedHashSet<>();
 
-    /**
-     * 使用服务代理作为参数调用后返回目标节点ID，如果目标节点只有一个，可以省去每次构造服务代理都必需要传参的麻烦
-     */
-    private Function<Proxy, Integer> targetNodeIdResolver;
+    private NodeIdResolver targetNodeIdResolver;
 
     //管理的所有工作线程，key:工作线程ID
     private Map<Integer, Worker> workers = new HashMap<>();
@@ -145,14 +143,11 @@ public class Node {
     }
 
 
-    /**
-     * @see #targetNodeIdResolver
-     */
-    public void setTargetNodeIdResolver(Function<Proxy, Integer> targetNodeIdResolver) {
+    public void setTargetNodeIdResolver(NodeIdResolver targetNodeIdResolver) {
         this.targetNodeIdResolver = targetNodeIdResolver;
     }
 
-    public Function<Proxy, Integer> getTargetNodeIdResolver() {
+    public NodeIdResolver getTargetNodeIdResolver() {
         return targetNodeIdResolver;
     }
 
@@ -182,8 +177,7 @@ public class Node {
     public void start() {
         try {
             workers.values().forEach(Worker::start);
-            BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("node-thread-%d").build();
-            executor = Executors.newScheduledThreadPool(1, threadFactory);
+            executor = Executors.newScheduledThreadPool(1, r -> new Thread(r, "node-thread"));
             executor.scheduleAtFixedRate(this::update, updateInterval, updateInterval, TimeUnit.MILLISECONDS);
             connectors.forEach(Connector::start);
         } finally {
@@ -206,13 +200,29 @@ public class Node {
     }
 
     protected void update() {
-        if (running) {
-            try {
-                workers.values().forEach(Worker::tryUpdate);
-            } catch (Exception e) {
-                logger.error("", e);
+        if (!running) {
+            return;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        long actualInterval = currentTime - updateTime;
+
+        if (updateTime > 0) {
+            if (actualInterval > updateInterval * 2L) {
+                logger.error("实际刷帧间隔时间({})过长", actualInterval);
+            } else if (actualInterval > updateInterval * 1.5) {
+                logger.warn("实际刷帧间隔时间({})偏长", actualInterval);
             }
         }
+
+        updateTime = currentTime;
+
+        try {
+            workers.values().forEach(Worker::update);
+        } catch (Exception e) {
+            logger.error("", e);
+        }
+
     }
 
     public void addService(Service service) {

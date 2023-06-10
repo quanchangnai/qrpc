@@ -10,7 +10,7 @@ import quan.rpc.RabbitConnector;
  */
 public class RpcTest1 {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
         NettyConnector nettyConnector = new NettyConnector("127.0.0.1", 8888);
 
         ConnectionFactory connectionFactory = new ConnectionFactory();
@@ -25,6 +25,7 @@ public class RpcTest1 {
         node.addService(new TestService1(1));
         node.addService(new RoleService1<>(2));
         node.start();
+
     }
 
 }

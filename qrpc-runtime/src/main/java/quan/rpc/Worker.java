@@ -13,7 +13,6 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.function.Function;
 
 /**
  * 工作线程
@@ -38,10 +37,11 @@ public class Worker implements Executor {
 
     private final BlockingQueue<Runnable> taskQueue = new LinkedBlockingQueue<>();
 
-    //刷帧开始时间
-    private volatile long updateTime;
+    //刷帧发起时间
+    private volatile long updateLaunchTime;
 
-    private volatile boolean updateFinished = true;
+    //刷帧开始时间
+    private volatile long updateStartTime;
 
     private long stackTraceTime;
 
@@ -58,6 +58,9 @@ public class Worker implements Executor {
     private final TreeSet<Promise<Object>> sortedPromises = new TreeSet<>(Comparator.comparingLong(Promise::getExpiredTime));
 
     private final TreeSet<DelayedResult<Object>> delayedResults = new TreeSet<>(Comparator.comparingLong(DelayedResult::getExpiredTime));
+
+    //定时任务
+    private final PriorityQueue<TimerTask> timerTasks = new PriorityQueue<>(Comparator.comparingLong(TimerTask::getRunTime));
 
     private ObjectWriter writer;
 
@@ -134,6 +137,7 @@ public class Worker implements Executor {
     protected void start() {
         thread = new Thread(this::run, "worker-" + id);
         thread.start();
+
         execute(() -> allServices.values().forEach(this::initService));
     }
 
@@ -161,8 +165,11 @@ public class Worker implements Executor {
         thread = null;
     }
 
-    @SuppressWarnings("NullableProblems")
+    /**
+     * 执行任务
+     */
     @Override
+    @SuppressWarnings("NullableProblems")
     public void execute(Runnable task) {
         Objects.requireNonNull(task, "参数[task]不能为空");
         try {
@@ -173,29 +180,98 @@ public class Worker implements Executor {
     }
 
     /**
-     * 执行刷帧并检测帧率，上一次刷帧还没有结束则不执行新的刷帧
+     * 在下一帧执行任务
      */
-    protected void tryUpdate() {
-        if (updateFinished) {
-            updateFinished = false;
-            execute(this::update);
+    public void schedule(Runnable task) {
+        Objects.requireNonNull(task, "参数[task]不能为空");
+        if (Thread.currentThread() == this.thread) {
+            addTimerTask(task, 0, 0);
+        } else {
+            execute(() -> addTimerTask(task, 0, 0));
+        }
+    }
+
+    /**
+     * 延迟执行任务
+     *
+     * @see #schedule(Runnable, long, long)
+     */
+    public void schedule(Runnable task, long delay) {
+        schedule(task, delay, 0);
+    }
+
+    /**
+     * 周期性执行任务
+     *
+     * @param task   任务
+     * @param delay  延迟时间
+     * @param period 周期间隔时间
+     */
+    public void schedule(Runnable task, long delay, long period) {
+        Objects.requireNonNull(task, "参数[task]不能为空");
+
+        int updateInterval = node.getUpdateInterval();
+        if (delay < updateInterval) {
+            throw new IllegalArgumentException("参数[delay]不能小于" + updateInterval);
+        }
+        if (period > 0 && period < updateInterval) {
+            throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
         }
 
+        if (Thread.currentThread() == this.thread) {
+            addTimerTask(task, delay, period);
+        } else {
+            execute(() -> addTimerTask(task, delay, period));
+        }
+    }
+
+    private void addTimerTask(Runnable task, long delay, long period) {
+        TimerTask timerTask = new TimerTask();
+        timerTask.runTime = System.currentTimeMillis() + Math.max(delay, 0);
+        timerTask.period = Math.max(period, 0);
+        timerTask.task = task;
+        timerTasks.offer(timerTask);
+    }
+
+    /**
+     * 发起刷帧，上一次刷帧还没有结束不执行新的刷帧
+     */
+    protected void update() {
         long currentTime = System.currentTimeMillis();
-        long intervalTime = currentTime - updateTime;
-        if (intervalTime > getNode().getUpdateInterval() * 2L && currentTime - stackTraceTime > 10000 && updateTime > 0) {
+
+        if (updateLaunchTime <= 0) {
+            updateLaunchTime = currentTime;
+            execute(this::doUpdate);
+        }
+
+        long intervalTime = currentTime - updateStartTime;
+        if (updateStartTime > 0 && intervalTime > getNode().getUpdateInterval() * 2L && currentTime - stackTraceTime > 10000) {
             stackTraceTime = currentTime;
             StringBuilder stackTrace = new StringBuilder();
             for (StackTraceElement traceElement : thread.getStackTrace()) {
                 stackTrace.append("\tat ").append(traceElement).append("\n");
             }
-            logger.error("工作线程[{}]帧率过低，距离上次刷帧已经过了{}ms，线程[{}]可能在执行耗时任务\n{}", id, intervalTime, thread.getId(), stackTrace);
+            logger.error("工作线程[{}]帧率过低，距离上次刷帧已经过了{}ms，线程[{}]可能执行了耗时任务\n{}", id, intervalTime, thread, stackTrace);
         }
     }
 
-    protected void update() {
-        updateTime = System.currentTimeMillis();
+    /**
+     * 执行刷帧
+     */
+    private void doUpdate() {
+        try {
+            updateStartTime = System.currentTimeMillis();
+            updateServices();
+            runTimerTasks();
+            expirePromises();
+            expireDelayedResults();
+            checkUpdateTime();
+        } finally {
+            updateLaunchTime = 0;
+        }
+    }
 
+    private void updateServices() {
         for (UpdatableService service : updatableServices) {
             try {
                 service.update();
@@ -203,16 +279,27 @@ public class Worker implements Executor {
                 logger.error("服务[{}]刷帧出错", service.getId(), e);
             }
         }
+    }
 
-        expirePromises();
-        expireDelayedResults();
+    private void runTimerTasks() {
+        TimerTask timerTask = timerTasks.peek();
+        List<TimerTask> periodicTasks = new ArrayList<>();
 
-        long costTime = System.currentTimeMillis() - updateTime;
-        if (costTime > getNode().getUpdateInterval()) {
-            logger.error("工作线程[{}]帧率过低，本次刷帧消耗时间{}ms", id, costTime);
+        while (timerTask != null && timerTask.isTimeUp()) {
+            timerTasks.poll();
+            try {
+                timerTask.run();
+            } catch (Exception e) {
+                logger.error("", e);
+            }
+
+            if (timerTask.period > 0) {
+                periodicTasks.add(timerTask);
+            }
+            timerTask = timerTasks.peek();
         }
 
-        updateFinished = true;
+        timerTasks.addAll(periodicTasks);
     }
 
     private void expirePromises() {
@@ -249,46 +336,95 @@ public class Worker implements Executor {
         }
     }
 
-    protected int resolveTargetNodeId(Proxy proxy) {
-        Function<Proxy, Integer> targetNodeIdResolver = node.getTargetNodeIdResolver();
-        if (targetNodeIdResolver != null) {
-            return targetNodeIdResolver.apply(proxy);
-        } else {
-            return 0;
+    private void checkUpdateTime() {
+        long updateWaitTime = updateStartTime - updateLaunchTime;
+        if (updateWaitTime > 10) {
+            logger.error("工作线程[{}]的刷帧等待时间({}ms)过长", id, updateWaitTime);
+        } else if (updateWaitTime > 2) {
+            logger.warn("工作线程[{}]的刷帧等待时间({}ms)偏长", id, updateWaitTime);
+        }
+
+        long updateCostTime = System.currentTimeMillis() - updateStartTime;
+        if (updateCostTime > node.getUpdateInterval()) {
+            logger.warn("工作线程[{}]的刷帧消耗时间({}ms)过长", id, updateCostTime);
+        } else if (updateCostTime * 2 >= node.getUpdateInterval()) {
+            logger.error("工作线程[{}]的刷帧消耗时间({}ms)偏长", id, updateCostTime);
         }
     }
 
-    protected <R> Promise<R> sendRequest(int targetNodeId, Object serviceId, String signature, int securityModifier, int methodId, Object... params) {
+    /**
+     * @see NodeIdResolver
+     */
+    private int resolveTargetNodeId(Proxy proxy) {
+        int targetNodeId = proxy._getNodeId$();
+        if (targetNodeId >= 0) {
+            return targetNodeId;
+        }
+
+        NodeIdResolver proxyNodeIdResolver = proxy._getNodeIdResolver$();
+        if (proxyNodeIdResolver != null) {
+            return proxyNodeIdResolver.resolve(proxy);
+        }
+
+        NodeIdResolver globalNodeIdResolver = node.getTargetNodeIdResolver();
+        if (globalNodeIdResolver != null) {
+            return globalNodeIdResolver.resolve(proxy);
+        }
+
+        return 0;
+    }
+
+    @SuppressWarnings("unchecked")
+    protected <R> Promise<R> sendRequest(Proxy proxy, String signature, int securityModifier, int methodId, Object... params) {
         long callId = (long) this.id << 32 | nextCallId++;
         if (nextCallId < 0) {
             nextCallId = 1;
         }
 
-        makeParamSafe(targetNodeId, securityModifier, params);
-
-        Request request = new Request(node.getId(), serviceId, methodId, params);
-        request.setCallId(callId);
-
         Promise<Object> promise = new Promise<>(callId, signature, this);
-        boolean sendError = false;
+        mappedPromises.put(promise.getCallId(), promise);
+        sortedPromises.add(promise);
 
-        try {
-            node.sendRequest(targetNodeId, request, securityModifier);
-        } catch (Exception e) {
-            sendError = true;
-            execute(() -> promise.setException(e));
-        }
+        sendRequest(proxy, promise, securityModifier, methodId, params);
 
-        if (!sendError) {
-            mappedPromises.put(callId, promise);
-            sortedPromises.add(promise);
-        }
-
-        //noinspection unchecked
         return (Promise<R>) promise;
     }
 
-    protected Object clone(Object object) {
+    private void sendRequest(Proxy proxy, Promise<Object> promise, int securityModifier, int methodId, Object... params) {
+        int targetNodeId;
+        try {
+            targetNodeId = resolveTargetNodeId(proxy);
+        } catch (Exception e) {
+            afterSendRequestError(promise, e);
+            return;
+        }
+
+        if (promise.isExpired()) {
+            logger.error("发送RPC请求，已过期无需发送，targetNodeId:{}，serviceId:{}", targetNodeId, proxy._getServiceId());
+            return;
+        }
+
+        if (targetNodeId < 0) {
+            schedule(() -> sendRequest(proxy, promise, securityModifier, methodId, params));
+            return;
+        }
+
+        try {
+            makeParamSafe(targetNodeId, securityModifier, params);
+            Request request = new Request(node.getId(), promise.getCallId(), proxy._getServiceId(), methodId, params);
+            node.sendRequest(targetNodeId, request, securityModifier);
+        } catch (Exception e) {
+            afterSendRequestError(promise, e);
+        }
+    }
+
+    private void afterSendRequestError(Promise<Object> promise, Exception e) {
+        mappedPromises.remove(promise.getCallId());
+        sortedPromises.remove(promise);
+        execute(() -> promise.setException(e));
+    }
+
+    private Object cloneObject(Object object) {
         if (writer == null) {
             CodedBuffer buffer = new DefaultCodedBuffer();
             writer = node.getWriterFactory().apply(buffer);
@@ -305,7 +441,7 @@ public class Worker implements Executor {
      *
      * @param securityModifier 1:标记所有参数都是安全的，参考 {@link Endpoint#paramSafe()}
      */
-    protected void makeParamSafe(int targetNodeId, int securityModifier, Object[] params) {
+    private void makeParamSafe(int targetNodeId, int securityModifier, Object[] params) {
         if (targetNodeId != 0 && targetNodeId != this.node.getId()) {
             return;
         }
@@ -317,7 +453,7 @@ public class Worker implements Executor {
         for (int i = 0; i < params.length; i++) {
             Object param = params[i];
             if (!ConstantUtils.isConstant(param)) {
-                params[i] = clone(param);
+                params[i] = cloneObject(param);
             }
         }
     }
@@ -327,7 +463,7 @@ public class Worker implements Executor {
      *
      * @param securityModifier 2:标记返回结果是安全的，参考 {@link Endpoint#resultSafe()}
      */
-    protected Object makeResultSafe(int originNodeId, int securityModifier, Object result) {
+    private Object makeResultSafe(int originNodeId, int securityModifier, Object result) {
         if (originNodeId != this.node.getId()) {
             return result;
         }
@@ -335,7 +471,7 @@ public class Worker implements Executor {
         if (ConstantUtils.isConstant(result) || (securityModifier & 0b10) == 0b10) {
             return result;
         } else {
-            return clone(result);
+            return cloneObject(result);
         }
     }
 
@@ -415,6 +551,39 @@ public class Worker implements Executor {
 
     public <R> DelayedResult<R> newDelayedResult() {
         return new DelayedResult<>(this);
+    }
+
+    /**
+     * 定时任务
+     */
+    private static class TimerTask implements Runnable {
+
+        long runTime;
+
+        //大于0代表该任务是周期任务
+        long period;
+
+        Runnable task;
+
+        long getRunTime() {
+            return runTime;
+        }
+
+        boolean isTimeUp() {
+            return runTime < System.currentTimeMillis();
+        }
+
+        @Override
+        public void run() {
+            try {
+                task.run();
+            } finally {
+                if (period > 0) {
+                    runTime = System.currentTimeMillis() + period;
+                }
+            }
+        }
+
     }
 
 }

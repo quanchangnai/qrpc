@@ -26,6 +26,6 @@ public abstract class Caller {
         return resultArray;
     }
 
-    public abstract Object call(Service service, int methodId, Object... params) throws Exception;
+    public abstract Object call(Service service, int methodId, Object... params) throws Throwable;
 
 }
