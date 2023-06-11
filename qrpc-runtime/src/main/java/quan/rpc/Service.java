@@ -65,19 +65,19 @@ public abstract class Service implements Executor {
     /**
      * 延迟执行任务
      *
-     * @see Worker#delayExecute(Runnable, long)
+     * @see Worker#execute(Runnable, long)
      */
     public void execute(Runnable task, long delay) {
-        worker.delayExecute(task, delay);
+        worker.execute(task, delay);
     }
 
     /**
      * 周期性执行任务
      *
-     * @see Worker#periodicExecute(Runnable, long) (Runnable, long, long)
+     * @see Worker#execute(Runnable, long, long) (Runnable, long, long)
      */
-    public void periodicExecute(Runnable task, long period) {
-        worker.periodicExecute(task, period);
+    public void execute(Runnable task, long initDelay, long period) {
+        worker.execute(task, initDelay, period);
     }
 
     public final <R> DelayedResult<R> newDelayedResult() {

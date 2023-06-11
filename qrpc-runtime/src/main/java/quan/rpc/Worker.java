@@ -187,7 +187,7 @@ public class Worker implements Executor {
      * @param task  任务
      * @param delay 延迟时间
      */
-    public void delayExecute(Runnable task, long delay) {
+    public void execute(Runnable task, long delay) {
         int updateInterval = node.getUpdateInterval();
         if (delay < updateInterval) {
             throw new IllegalArgumentException("参数[delay]不能小于" + updateInterval);
@@ -198,26 +198,34 @@ public class Worker implements Executor {
     /**
      * 周期性执行任务
      *
-     * @param task   任务
-     * @param period 周期时间
+     * @param task      任务
+     * @param initDelay 初始延迟时间
+     * @param period    周期时间
      */
-    public void periodicExecute(Runnable task, long period) {
+    public void execute(Runnable task, long initDelay, long period) {
+        if (initDelay < 0) {
+            throw new IllegalArgumentException("参数[initDelay]不能小于0");
+        }
         int updateInterval = node.getUpdateInterval();
         if (period < updateInterval) {
             throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
         }
-        addTimeTask(task, 0, period);
+        addTimeTask(task, initDelay, period);
     }
 
-    private void addTimeTask(Runnable task, long delay, long period) {
+    private void addTimeTask(Runnable task, long initDelay, long period) {
         Objects.requireNonNull(task, "参数[task]不能为空");
 
         TimeTask timeTask = new TimeTask();
-        timeTask.time = System.currentTimeMillis() + delay;
+        timeTask.time = System.currentTimeMillis() + initDelay;
         timeTask.period = period;
         timeTask.task = task;
 
-        timeTaskList.add(timeTask);
+        if (thread == Thread.currentThread()) {
+            timeTaskList.add(timeTask);
+        } else {
+            run(() -> timeTaskList.add(timeTask));
+        }
     }
 
     /**
@@ -275,12 +283,7 @@ public class Worker implements Executor {
         TimeTask timeTask = timeTaskQueue.peek();
         while (timeTask != null && timeTask.isTimeUp()) {
             timeTaskQueue.poll();
-            try {
-                timeTask.run();
-            } catch (Exception e) {
-                logger.error("", e);
-            }
-
+            timeTask.run();
             if (timeTask.period > 0) {
                 timeTaskList.add(timeTask);
             }
@@ -542,10 +545,12 @@ public class Worker implements Executor {
     /**
      * 定时任务
      */
-    private static class TimeTask implements Runnable {
+    private static class TimeTask {
+
+        static final Logger logger = LoggerFactory.getLogger(TimeTask.class);
 
         /**
-         * 执行时间
+         * 期望的执行时间
          */
         long time;
 
@@ -564,13 +569,16 @@ public class Worker implements Executor {
             return time < System.currentTimeMillis();
         }
 
-        @Override
         public void run() {
+            //实际执行时间
+            long runTime = System.currentTimeMillis();
             try {
                 task.run();
+            } catch (Exception e) {
+                logger.error("", e);
             } finally {
                 if (period > 0) {
-                    time = System.currentTimeMillis() + period;
+                    time = runTime + period;
                 }
             }
         }
