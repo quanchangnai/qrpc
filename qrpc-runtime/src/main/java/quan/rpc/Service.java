@@ -56,31 +56,28 @@ public abstract class Service implements Executor {
     /**
      * 执行任务
      */
-    @SuppressWarnings("NullableProblems")
     @Override
+    @SuppressWarnings("NullableProblems")
     public final void execute(Runnable task) {
         worker.execute(task);
     }
 
     /**
-     * 在下一帧执行任务
-     */
-    public void schedule(Runnable task) {
-        worker.schedule(task);
-    }
-
-    /**
      * 延迟执行任务
+     *
+     * @see Worker#delayExecute(Runnable, long)
      */
-    public void schedule(Runnable task, long delay) {
-        worker.schedule(task, delay);
+    public void execute(Runnable task, long delay) {
+        worker.delayExecute(task, delay);
     }
 
     /**
      * 周期性执行任务
+     *
+     * @see Worker#periodicExecute(Runnable, long) (Runnable, long, long)
      */
-    public void schedule(Runnable task, long delay, long period) {
-        worker.schedule(task, delay, period);
+    public void periodicExecute(Runnable task, long period) {
+        worker.periodicExecute(task, period);
     }
 
     public final <R> DelayedResult<R> newDelayedResult() {

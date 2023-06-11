@@ -54,13 +54,15 @@ public class Worker implements Executor {
 
     private final Map<Long, Promise<Object>> mappedPromises = new HashMap<>();
 
-    //按时间排序
     private final TreeSet<Promise<Object>> sortedPromises = new TreeSet<>(Comparator.comparingLong(Promise::getExpiredTime));
 
     private final TreeSet<DelayedResult<Object>> delayedResults = new TreeSet<>(Comparator.comparingLong(DelayedResult::getExpiredTime));
 
-    //定时任务
-    private final PriorityQueue<TimerTask> timerTasks = new PriorityQueue<>(Comparator.comparingLong(TimerTask::getRunTime));
+    //定时任务队列
+    private final PriorityQueue<TimeTask> timeTaskQueue = new PriorityQueue<>(Comparator.comparingLong(TimeTask::getTime));
+
+    //等待入队的定时任务
+    private final List<TimeTask> timeTaskList = new ArrayList<>();
 
     private ObjectWriter writer;
 
@@ -138,17 +140,17 @@ public class Worker implements Executor {
         thread = new Thread(this::run, "worker-" + id);
         thread.start();
 
-        execute(() -> allServices.values().forEach(this::initService));
+        run(() -> allServices.values().forEach(this::initService));
     }
 
     protected void stop() {
-        execute(() -> {
+        run(() -> {
             allServices.values().forEach(this::destroyService);
             running = false;
         });
     }
 
-    protected void run() {
+    private void run() {
         threadLocal.set(this);
         running = true;
 
@@ -160,17 +162,11 @@ public class Worker implements Executor {
             }
         }
 
-        taskQueue.clear();
         threadLocal.set(null);
         thread = null;
     }
 
-    /**
-     * 执行任务
-     */
-    @Override
-    @SuppressWarnings("NullableProblems")
-    public void execute(Runnable task) {
+    public void run(Runnable task) {
         Objects.requireNonNull(task, "参数[task]不能为空");
         try {
             taskQueue.put(task);
@@ -179,58 +175,49 @@ public class Worker implements Executor {
         }
     }
 
-    /**
-     * 在下一帧执行任务
-     */
-    public void schedule(Runnable task) {
-        Objects.requireNonNull(task, "参数[task]不能为空");
-        if (Thread.currentThread() == this.thread) {
-            addTimerTask(task, 0, 0);
-        } else {
-            execute(() -> addTimerTask(task, 0, 0));
-        }
+    @Override
+    @SuppressWarnings("NullableProblems")
+    public void execute(Runnable task) {
+        addTimeTask(task, 0, 0);
     }
 
     /**
      * 延迟执行任务
      *
-     * @see #schedule(Runnable, long, long)
+     * @param task  任务
+     * @param delay 延迟时间
      */
-    public void schedule(Runnable task, long delay) {
-        schedule(task, delay, 0);
+    public void delayExecute(Runnable task, long delay) {
+        int updateInterval = node.getUpdateInterval();
+        if (delay < updateInterval) {
+            throw new IllegalArgumentException("参数[delay]不能小于" + updateInterval);
+        }
+        addTimeTask(task, delay, 0);
     }
 
     /**
      * 周期性执行任务
      *
      * @param task   任务
-     * @param delay  延迟时间
-     * @param period 周期间隔时间
+     * @param period 周期时间
      */
-    public void schedule(Runnable task, long delay, long period) {
-        Objects.requireNonNull(task, "参数[task]不能为空");
-
+    public void periodicExecute(Runnable task, long period) {
         int updateInterval = node.getUpdateInterval();
-        if (delay < updateInterval) {
-            throw new IllegalArgumentException("参数[delay]不能小于" + updateInterval);
-        }
-        if (period > 0 && period < updateInterval) {
+        if (period < updateInterval) {
             throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
         }
-
-        if (Thread.currentThread() == this.thread) {
-            addTimerTask(task, delay, period);
-        } else {
-            execute(() -> addTimerTask(task, delay, period));
-        }
+        addTimeTask(task, 0, period);
     }
 
-    private void addTimerTask(Runnable task, long delay, long period) {
-        TimerTask timerTask = new TimerTask();
-        timerTask.runTime = System.currentTimeMillis() + Math.max(delay, 0);
-        timerTask.period = Math.max(period, 0);
-        timerTask.task = task;
-        timerTasks.offer(timerTask);
+    private void addTimeTask(Runnable task, long delay, long period) {
+        Objects.requireNonNull(task, "参数[task]不能为空");
+
+        TimeTask timeTask = new TimeTask();
+        timeTask.time = System.currentTimeMillis() + delay;
+        timeTask.period = period;
+        timeTask.task = task;
+
+        timeTaskList.add(timeTask);
     }
 
     /**
@@ -241,7 +228,7 @@ public class Worker implements Executor {
 
         if (updateLaunchTime <= 0) {
             updateLaunchTime = currentTime;
-            execute(this::doUpdate);
+            run(this::doUpdate);
         }
 
         long intervalTime = currentTime - updateStartTime;
@@ -261,8 +248,8 @@ public class Worker implements Executor {
     private void doUpdate() {
         try {
             updateStartTime = System.currentTimeMillis();
+            runTimeTasks();
             updateServices();
-            runTimerTasks();
             expirePromises();
             expireDelayedResults();
             checkUpdateTime();
@@ -281,25 +268,24 @@ public class Worker implements Executor {
         }
     }
 
-    private void runTimerTasks() {
-        TimerTask timerTask = timerTasks.peek();
-        List<TimerTask> periodicTasks = new ArrayList<>();
+    private void runTimeTasks() {
+        timeTaskQueue.addAll(timeTaskList);
+        timeTaskList.clear();
 
-        while (timerTask != null && timerTask.isTimeUp()) {
-            timerTasks.poll();
+        TimeTask timeTask = timeTaskQueue.peek();
+        while (timeTask != null && timeTask.isTimeUp()) {
+            timeTaskQueue.poll();
             try {
-                timerTask.run();
+                timeTask.run();
             } catch (Exception e) {
                 logger.error("", e);
             }
 
-            if (timerTask.period > 0) {
-                periodicTasks.add(timerTask);
+            if (timeTask.period > 0) {
+                timeTaskList.add(timeTask);
             }
-            timerTask = timerTasks.peek();
+            timeTask = timeTaskQueue.peek();
         }
-
-        timerTasks.addAll(periodicTasks);
     }
 
     private void expirePromises() {
@@ -405,7 +391,7 @@ public class Worker implements Executor {
         }
 
         if (targetNodeId < 0) {
-            schedule(() -> sendRequest(proxy, promise, securityModifier, methodId, params));
+            execute(() -> sendRequest(proxy, promise, securityModifier, methodId, params));
             return;
         }
 
@@ -421,7 +407,7 @@ public class Worker implements Executor {
     private void afterSendRequestError(Promise<Object> promise, Exception e) {
         mappedPromises.remove(promise.getCallId());
         sortedPromises.remove(promise);
-        execute(() -> promise.setException(e));
+        run(() -> promise.setException(e));
     }
 
     private Object cloneObject(Object object) {
@@ -556,21 +542,26 @@ public class Worker implements Executor {
     /**
      * 定时任务
      */
-    private static class TimerTask implements Runnable {
+    private static class TimeTask implements Runnable {
 
-        long runTime;
+        /**
+         * 执行时间
+         */
+        long time;
 
-        //大于0代表该任务是周期任务
+        /**
+         * 执行周期，小于1代表该任务不是周期任务
+         */
         long period;
 
         Runnable task;
 
-        long getRunTime() {
-            return runTime;
+        long getTime() {
+            return time;
         }
 
         boolean isTimeUp() {
-            return runTime < System.currentTimeMillis();
+            return time < System.currentTimeMillis();
         }
 
         @Override
@@ -579,7 +570,7 @@ public class Worker implements Executor {
                 task.run();
             } finally {
                 if (period > 0) {
-                    runTime = System.currentTimeMillis() + period;
+                    time = System.currentTimeMillis() + period;
                 }
             }
         }

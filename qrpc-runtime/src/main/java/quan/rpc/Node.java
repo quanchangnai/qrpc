@@ -236,7 +236,7 @@ public class Node {
 
         Object serviceId = Objects.requireNonNull(service.getId(), "服务ID不能为空");
         if (services.putIfAbsent(serviceId, service) == null) {
-            worker.execute(() -> worker.doAddService(service));
+            worker.run(() -> worker.doAddService(service));
         } else {
             logger.error("服务[{}]已存在", serviceId);
         }
@@ -250,7 +250,7 @@ public class Node {
         }
 
         Worker worker = service.getWorker();
-        worker.execute(() -> worker.doRemoveService(service));
+        worker.run(() -> worker.doRemoveService(service));
     }
 
     protected void sendProtocol(int remoteId, Protocol protocol) {
@@ -288,7 +288,7 @@ public class Node {
             logger.error("处理RPC请求，服务[{}]不存在", request.getServiceId());
         } else {
             Worker worker = service.getWorker();
-            worker.execute(() -> worker.handleRequest(request, securityModifier));
+            worker.run(() -> worker.handleRequest(request, securityModifier));
         }
     }
 
@@ -318,7 +318,7 @@ public class Node {
         if (worker == null) {
             logger.error("处理RPC响应，工作线程[{}]不存在，originNodeId:{}，callId:{}", workerId, response.getOriginNodeId(), callId);
         } else {
-            worker.execute(() -> worker.handleResponse(response));
+            worker.run(() -> worker.handleResponse(response));
         }
     }
 

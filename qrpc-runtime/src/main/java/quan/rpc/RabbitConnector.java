@@ -181,7 +181,7 @@ public class RabbitConnector extends Connector {
                 if (protocol instanceof Request) {
                     CallException callException = new CallException(String.format("发送协议到远程节点[%s]出错", remoteId), e);
                     long callId = ((Request) protocol).getCallId();
-                    worker.execute(() -> worker.handlePromise(callId, callException, null));
+                    worker.run(() -> worker.handlePromise(callId, callException, null));
                 } else {
                     logger.error("发送协议出错，{}", protocol, e);
                 }

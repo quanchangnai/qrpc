@@ -41,7 +41,7 @@ public final class DelayedResult<R> extends Promise<R> {
         }
 
         if (Worker.current() != this.worker) {
-            this.worker.execute(() -> setResult(result));
+            this.worker.run(() -> setResult(result));
             return;
         }
 
@@ -64,7 +64,7 @@ public final class DelayedResult<R> extends Promise<R> {
         }
 
         if (Worker.current() != this.worker) {
-            this.worker.execute(() -> setException(exception));
+            this.worker.run(() -> setException(exception));
             return;
         }
 
