@@ -2,10 +2,7 @@ package quan.rpc.test;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quan.rpc.DelayedResult;
-import quan.rpc.Endpoint;
-import quan.rpc.Promise;
-import quan.rpc.UpdatableService;
+import quan.rpc.*;
 
 import java.util.List;
 import java.util.Map;
@@ -23,7 +20,23 @@ public class TestService2 extends UpdatableService {
 
     private long lastTime;
 
-    private TestService1Proxy testService1Proxy = new TestService1Proxy(1, 1);
+    private NodeIdResolver nodeIdResolver = new NodeIdResolver() {
+
+        int count = 0;
+
+        @Override
+        public int resolve(Proxy proxy) {
+            if (count < 5) {
+                count++;
+                return -1;
+            } else {
+                count = 0;
+                return 1;
+            }
+        }
+    };
+
+    private TestService1Proxy testService1Proxy = new TestService1Proxy(nodeIdResolver, 1);
 
     public TestService2(int id) {
         this.id = id;

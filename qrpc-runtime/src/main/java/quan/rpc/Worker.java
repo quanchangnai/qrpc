@@ -37,10 +37,8 @@ public class Worker implements Executor {
 
     private final BlockingQueue<Runnable> taskQueue = new LinkedBlockingQueue<>();
 
-    //刷帧发起时间
-    private volatile long updateLaunchTime;
+    private volatile long updateReadyTime;
 
-    //刷帧开始时间
     private volatile long updateStartTime;
 
     private long stackTraceTime;
@@ -188,9 +186,8 @@ public class Worker implements Executor {
      * @param delay 延迟时间
      */
     public void execute(Runnable task, long delay) {
-        int updateInterval = node.getUpdateInterval();
-        if (delay < updateInterval) {
-            throw new IllegalArgumentException("参数[delay]不能小于" + updateInterval);
+        if (delay < 0) {
+            throw new IllegalArgumentException("参数[delay]不能小于0");
         }
         addTimeTask(task, delay, 0);
     }
@@ -198,19 +195,19 @@ public class Worker implements Executor {
     /**
      * 周期性执行任务
      *
-     * @param task      任务
-     * @param initDelay 初始延迟时间
-     * @param period    周期时间
+     * @param task   任务
+     * @param delay  延迟时间
+     * @param period 周期时间
      */
-    public void execute(Runnable task, long initDelay, long period) {
-        if (initDelay < 0) {
-            throw new IllegalArgumentException("参数[initDelay]不能小于0");
+    public void execute(Runnable task, long delay, long period) {
+        if (delay < 0) {
+            throw new IllegalArgumentException("参数[delay]不能小于0");
         }
         int updateInterval = node.getUpdateInterval();
         if (period < updateInterval) {
             throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
         }
-        addTimeTask(task, initDelay, period);
+        addTimeTask(task, delay, period);
     }
 
     private void addTimeTask(Runnable task, long initDelay, long period) {
@@ -232,15 +229,14 @@ public class Worker implements Executor {
      * 发起刷帧，上一次刷帧还没有结束不执行新的刷帧
      */
     protected void update() {
-        long currentTime = System.currentTimeMillis();
-
-        if (updateLaunchTime <= 0) {
-            updateLaunchTime = currentTime;
+        if (updateReadyTime <= 0) {
+            updateReadyTime = System.currentTimeMillis();
             run(this::doUpdate);
         }
 
+        long currentTime = System.currentTimeMillis();
         long intervalTime = currentTime - updateStartTime;
-        if (updateStartTime > 0 && intervalTime > getNode().getUpdateInterval() * 2L && currentTime - stackTraceTime > 10000) {
+        if (updateStartTime > 0 && intervalTime > getNode().getUpdateInterval() * 2L && currentTime - stackTraceTime > 5000) {
             stackTraceTime = currentTime;
             StringBuilder stackTrace = new StringBuilder();
             for (StackTraceElement traceElement : thread.getStackTrace()) {
@@ -262,7 +258,7 @@ public class Worker implements Executor {
             expireDelayedResults();
             checkUpdateTime();
         } finally {
-            updateLaunchTime = 0;
+            updateReadyTime = 0;
         }
     }
 
@@ -326,18 +322,14 @@ public class Worker implements Executor {
     }
 
     private void checkUpdateTime() {
-        long updateWaitTime = updateStartTime - updateLaunchTime;
-        if (updateWaitTime > 10) {
+        long updateWaitTime = updateStartTime - updateReadyTime;
+        if (updateWaitTime > 5) {
             logger.error("工作线程[{}]的刷帧等待时间({}ms)过长", id, updateWaitTime);
-        } else if (updateWaitTime > 2) {
-            logger.warn("工作线程[{}]的刷帧等待时间({}ms)偏长", id, updateWaitTime);
         }
 
         long updateCostTime = System.currentTimeMillis() - updateStartTime;
-        if (updateCostTime > node.getUpdateInterval()) {
+        if (updateCostTime > node.getUpdateInterval() * 0.5) {
             logger.warn("工作线程[{}]的刷帧消耗时间({}ms)过长", id, updateCostTime);
-        } else if (updateCostTime * 2 >= node.getUpdateInterval()) {
-            logger.error("工作线程[{}]的刷帧消耗时间({}ms)偏长", id, updateCostTime);
         }
     }
 
@@ -350,14 +342,14 @@ public class Worker implements Executor {
             return targetNodeId;
         }
 
-        NodeIdResolver proxyNodeIdResolver = proxy._getNodeIdResolver$();
-        if (proxyNodeIdResolver != null) {
-            return proxyNodeIdResolver.resolve(proxy);
+        NodeIdResolver nodeIdResolver = proxy._getNodeIdResolver$();
+        if (nodeIdResolver != null) {
+            return nodeIdResolver.resolve(proxy);
         }
 
-        NodeIdResolver globalNodeIdResolver = node.getTargetNodeIdResolver();
-        if (globalNodeIdResolver != null) {
-            return globalNodeIdResolver.resolve(proxy);
+        nodeIdResolver = node.getTargetNodeIdResolver();
+        if (nodeIdResolver != null) {
+            return nodeIdResolver.resolve(proxy);
         }
 
         return 0;
@@ -399,6 +391,7 @@ public class Worker implements Executor {
         }
 
         try {
+            promise.setExpiredTime();
             makeParamSafe(targetNodeId, securityModifier, params);
             Request request = new Request(node.getId(), promise.getCallId(), proxy._getServiceId(), methodId, params);
             node.sendRequest(targetNodeId, request, securityModifier);

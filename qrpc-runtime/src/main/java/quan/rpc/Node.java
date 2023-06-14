@@ -207,12 +207,8 @@ public class Node {
         long currentTime = System.currentTimeMillis();
         long actualInterval = currentTime - updateTime;
 
-        if (updateTime > 0) {
-            if (actualInterval > updateInterval * 2L) {
-                logger.error("实际刷帧间隔时间({})过长", actualInterval);
-            } else if (actualInterval > updateInterval * 1.5) {
-                logger.warn("实际刷帧间隔时间({})偏长", actualInterval);
-            }
+        if (updateTime > 0 && actualInterval > updateInterval * 2L) {
+            logger.error("实际刷帧间隔时间({})过长", actualInterval);
         }
 
         updateTime = currentTime;

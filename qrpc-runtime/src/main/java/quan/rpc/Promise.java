@@ -51,7 +51,7 @@ public class Promise<R> {
         this.callId = callId;
         this.signature = signature;
         this.worker = worker;
-        this.expiredTime = System.currentTimeMillis() + worker.getNode().getCallTtl() * 1000L;
+        setExpiredTime();
     }
 
     protected long getCallId() {
@@ -126,6 +126,10 @@ public class Promise<R> {
                 handlerPromise.delegate(helpPromise);
             }
         }
+    }
+
+    protected void setExpiredTime() {
+        this.expiredTime = System.currentTimeMillis() + worker.getNode().getCallTtl() * 1000L;
     }
 
     /**

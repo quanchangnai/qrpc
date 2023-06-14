@@ -76,8 +76,8 @@ public abstract class Service implements Executor {
      *
      * @see Worker#execute(Runnable, long, long) (Runnable, long, long)
      */
-    public void execute(Runnable task, long initDelay, long period) {
-        worker.execute(task, initDelay, period);
+    public void execute(Runnable task, long delay, long period) {
+        worker.execute(task, delay, period);
     }
 
     public final <R> DelayedResult<R> newDelayedResult() {

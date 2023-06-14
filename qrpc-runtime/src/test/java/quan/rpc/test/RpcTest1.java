@@ -8,6 +8,7 @@ import quan.rpc.RabbitConnector;
 /**
  * @author quanchangnai
  */
+
 public class RpcTest1 {
 
     public static void main(String[] args) throws InterruptedException {
