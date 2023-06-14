@@ -3,6 +3,10 @@ package quan.rpc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.concurrent.Executor;
 
 /**
@@ -33,9 +37,9 @@ public abstract class Service implements Executor {
         if (id != null) {
             return id;
         }
-        SingletonService singletonService = getClass().getAnnotation(SingletonService.class);
-        if (singletonService != null) {
-            id = singletonService.id();
+        Single single = getClass().getAnnotation(Single.class);
+        if (single != null) {
+            id = single.id();
             return id;
         }
         throw new IllegalStateException("服务ID不存在");
@@ -94,6 +98,22 @@ public abstract class Service implements Executor {
      * 销毁
      */
     protected void destroy() {
+    }
+
+    /**
+     * 单例服务标志
+     */
+    @Target(ElementType.TYPE)
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface Single {
+
+        /**
+         * 服务ID
+         *
+         * @see Service#getId()
+         */
+        String id();
+
     }
 
 }

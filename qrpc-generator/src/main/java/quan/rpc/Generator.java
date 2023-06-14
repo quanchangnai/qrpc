@@ -14,15 +14,18 @@ import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Pattern;
 
-@SupportedAnnotationTypes({"quan.rpc.Endpoint", "quan.rpc.SingletonService"})
 @SupportedOptions("rpcProxyPath")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
+@SupportedAnnotationTypes({"quan.rpc.Endpoint", "quan.rpc.Service.Single"})
 public class Generator extends AbstractProcessor {
 
     private Messager messager;
@@ -42,7 +45,9 @@ public class Generator extends AbstractProcessor {
      */
     private String proxyPath;
 
-    private static final Pattern illegalMethodPattern = Pattern.compile("_.*\\$");
+    private final Pattern illegalMethodPattern = Pattern.compile("_.*\\$");
+
+    private final List<Modifier> illegalMethodModifiers = Arrays.asList(Modifier.PRIVATE, Modifier.STATIC);
 
     private Template proxyTemplate;
 
@@ -51,13 +56,16 @@ public class Generator extends AbstractProcessor {
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
+
         messager = processingEnv.getMessager();
         filer = processingEnv.getFiler();
         typeUtils = processingEnv.getTypeUtils();
         elementUtils = processingEnv.getElementUtils();
+
         serviceType = elementUtils.getTypeElement(Service.class.getName()).asType();
         promiseType = typeUtils.erasure(elementUtils.getTypeElement(Promise.class.getName()).asType());
         proxyPath = processingEnv.getOptions().get("rpcProxyPath");
+
         try {
             Configuration freemarkerCfg = new Configuration(Configuration.VERSION_2_3_23);
             freemarkerCfg.setClassForTemplateLoading(getClass(), "");
@@ -65,126 +73,141 @@ public class Generator extends AbstractProcessor {
             proxyTemplate = freemarkerCfg.getTemplate("proxy.ftl");
             callerTemplate = freemarkerCfg.getTemplate("caller.ftl");
         } catch (IOException e) {
-            error(e);
+            printError(e);
         }
     }
 
-    private void error(String msg) {
-        messager.printMessage(Diagnostic.Kind.ERROR, msg);
+    private void printError(String msg, Element element) {
+        messager.printMessage(Diagnostic.Kind.ERROR, msg, element);
     }
 
-    private void error(Exception e) {
+    private void printError(Exception e) {
         messager.printMessage(Diagnostic.Kind.ERROR, e.toString());
         e.printStackTrace();
     }
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        Map<TypeElement, List<ExecutableElement>> elements = new HashMap<>();
+        Set<TypeElement> typeElements = new HashSet<>();
 
         for (TypeElement annotation : annotations) {
             boolean endpoint = annotation.getQualifiedName().contentEquals(Endpoint.class.getName());
             for (Element element : roundEnv.getElementsAnnotatedWith(annotation)) {
                 if (endpoint) {
-                    ExecutableElement executableElement = (ExecutableElement) element;
-                    TypeElement typeElement = (TypeElement) executableElement.getEnclosingElement();
-                    elements.computeIfAbsent(typeElement, k -> new ArrayList<>()).add(executableElement);
+                    typeElements.add((TypeElement) element.getEnclosingElement());
                 } else {
-                    processSingletonService((TypeElement) element);
+                    typeElements.add((TypeElement) element);
                 }
             }
         }
 
         for (Element rootElement : roundEnv.getRootElements()) {
             if (rootElement instanceof TypeElement && typeUtils.isSubtype(rootElement.asType(), serviceType)) {
-                TypeElement typeElement = (TypeElement) rootElement;
-                if (!elements.containsKey(typeElement)) {
-                    //可能会有继承下来的Endpoint方法
-                    elements.put(typeElement, new ArrayList<>());
-                }
+                //没有加注解的服务类
+                typeElements.add((TypeElement) rootElement);
             }
         }
 
-        for (TypeElement typeElement : elements.keySet()) {
-            processServiceClass(typeElement, elements.get(typeElement));
+        for (TypeElement typeElement : typeElements) {
+            processServiceClass(typeElement);
         }
 
         return true;
     }
 
-    private void processSingletonService(TypeElement typeElement) {
-        if (!typeUtils.isSubtype(typeElement.asType(), serviceType)) {
-            error(typeElement + " cannot declare an SingletonService annotation, because it is not a subtype of " + serviceType);
-            return;
-        }
+    private boolean checkServiceClass(TypeElement typeElement) {
+        boolean success = true;
 
+        boolean isSingle = typeElement.getAnnotation(Service.Single.class) != null;
+        boolean isServiceType = typeUtils.isSubtype(typeElement.asType(), serviceType);
+
+        Set<ExecutableElement> executableElements = new LinkedHashSet<>();
         for (Element enclosedElement : typeElement.getEnclosedElements()) {
             if (enclosedElement instanceof ExecutableElement) {
-                ExecutableElement executableElement = (ExecutableElement) enclosedElement;
-                if (executableElement.getSimpleName().contentEquals("getId") && executableElement.getParameters().isEmpty()) {
-                    error(typeElement + " cannot override getId() method, because it is SingletonService");
-                    break;
-                }
+                executableElements.add((ExecutableElement) enclosedElement);
             }
-        }
-    }
-
-    private void processServiceClass(TypeElement typeElement, List<ExecutableElement> executableElements) {
-        if (!typeUtils.isSubtype(typeElement.asType(), serviceType)) {
-            error(typeElement + " cannot declare an endpoint method, because it is not a subtype of " + serviceType);
-            return;
-        }
-
-        if (typeElement.getNestingKind().isNested()) {
-            error(typeElement + " cannot declare an endpoint method, because it is nested kind");
-            return;
         }
 
         if (typeElement.getModifiers().contains(Modifier.ABSTRACT)) {
+            success = false;
+        }
+
+        if (isServiceType && typeElement.getNestingKind().isNested()) {
+            printError("service class cannot is nested", typeElement);
+        }
+
+        if (isSingle) {
+            if (isServiceType) {
+                for (ExecutableElement executableElement : executableElements) {
+                    if (executableElement.getSimpleName().contentEquals("getId") && executableElement.getParameters().isEmpty()) {
+                        success = false;
+                        printError("single service class cannot override getId method", executableElement);
+                        break;
+                    }
+                }
+            } else if (typeElement.getKind() != ElementKind.CLASS) {
+                success = false;
+                printError(typeElement.getKind().name().toLowerCase() + "  cannot declare a " + Service.Single.class.getName() + " annotation", typeElement);
+            } else {
+                success = false;
+                printError("non service class cannot declare a " + Service.Single.class.getName() + " annotation", typeElement);
+            }
+        }
+
+        for (ExecutableElement executableElement : executableElements) {
+            if (illegalMethodPattern.matcher(executableElement.getSimpleName()).matches()) {
+                success = false;
+                printError("the name of the method is illegal", executableElement);
+            }
+
+            if (!isServiceType) {
+                success = false;
+                printError("endpoint method cannot declare in non service class", executableElement);
+            } else {
+                for (Modifier illegalModifier : illegalMethodModifiers) {
+                    if (executableElement.getModifiers().contains(illegalModifier)) {
+                        success = false;
+                        printError("endpoint method cant not declare one of " + illegalMethodModifiers, executableElement);
+                    }
+                }
+            }
+        }
+
+        return success;
+    }
+
+    private void processServiceClass(TypeElement typeElement) {
+        if (!checkServiceClass(typeElement)) {
             return;
+        }
+
+        Set<ExecutableElement> executableElements = new LinkedHashSet<>();
+        for (Element memberElement : elementUtils.getAllMembers(typeElement)) {
+            if (memberElement instanceof ExecutableElement && memberElement.getAnnotation(Endpoint.class) != null) {
+                executableElements.add((ExecutableElement) memberElement);
+            }
         }
 
         ServiceClass serviceClass = new ServiceClass(typeElement.getQualifiedName().toString());
         serviceClass.setComment(elementUtils.getDocComment(typeElement));
         serviceClass.setOriginalTypeParameters(processTypeParameters(typeElement.getTypeParameters()));
 
-        SingletonService singletonService = typeElement.getAnnotation(SingletonService.class);
-        if (singletonService != null) {
-            serviceClass.setServiceId(singletonService.id());
-        }
-
-        if (!typeUtils.isSameType(typeElement.getSuperclass(), serviceType)) {
-            executableElements = new ArrayList<>();
-            for (Element memberElement : elementUtils.getAllMembers(typeElement)) {
-                if (memberElement instanceof ExecutableElement && memberElement.getAnnotation(Endpoint.class) != null) {
-                    executableElements.add((ExecutableElement) memberElement);
-                }
-            }
+        Service.Single single = typeElement.getAnnotation(Service.Single.class);
+        if (single != null) {
+            serviceClass.setServiceId(single.id());
         }
 
         for (ExecutableElement executableElement : executableElements) {
-            if (executableElement.getModifiers().contains(Modifier.PRIVATE)) {
-                error(typeElement + "." + executableElement + " cannot be declared as endpoint method, because it is private");
-                continue;
-            }
-            if (illegalMethodPattern.matcher(executableElement.getSimpleName()).matches()) {
-                error(typeElement + "." + executableElement + " name is illegal");
-                continue;
-            }
             ServiceMethod serviceMethod = processServiceMethod(executableElement);
             serviceMethod.setServiceClass(serviceClass);
             serviceClass.getMethods().add(serviceMethod);
-        }
-
-        if (serviceClass.getMethods().isEmpty()) {
-            return;
         }
 
         try {
             generateProxy(serviceClass);
             generateCaller(serviceClass);
         } catch (IOException e) {
-            error(e);
+            printError(e);
         }
     }
 
@@ -278,7 +301,7 @@ public class Generator extends AbstractProcessor {
         try {
             proxyTemplate.process(serviceClass, proxyWriter);
         } catch (Exception e) {
-            error(e);
+            printError(e);
         } finally {
             proxyWriter.close();
         }
@@ -293,7 +316,7 @@ public class Generator extends AbstractProcessor {
         try (Writer callerWriter = callerFile.openWriter()) {
             callerTemplate.process(serviceClass, callerWriter);
         } catch (Exception e) {
-            error(e);
+            printError(e);
         }
     }
 
