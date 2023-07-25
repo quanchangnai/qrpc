@@ -36,7 +36,7 @@ public class TestService2 extends UpdatableService {
         }
     };
 
-    private TestService1Proxy testService1Proxy = new TestService1Proxy(nodeIdResolver, 1);
+    private TestService1Proxy testService1Proxy = new TestService1Proxy(1, 1);
 
     public TestService2(int id) {
         this.id = id;

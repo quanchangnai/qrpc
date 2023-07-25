@@ -118,7 +118,7 @@ public class Generator extends AbstractProcessor {
     private boolean checkServiceClass(TypeElement typeElement) {
         boolean success = true;
 
-        boolean isSingle = typeElement.getAnnotation(Service.Single.class) != null;
+        boolean isSingleton = typeElement.getAnnotation(Service.Singleton.class) != null;
         boolean isServiceType = typeUtils.isSubtype(typeElement.asType(), serviceType);
 
         Set<ExecutableElement> executableElements = new LinkedHashSet<>();
@@ -136,7 +136,7 @@ public class Generator extends AbstractProcessor {
             printError("service class cannot is nested", typeElement);
         }
 
-        if (isSingle) {
+        if (isSingleton) {
             if (isServiceType) {
                 for (ExecutableElement executableElement : executableElements) {
                     if (executableElement.getSimpleName().contentEquals("getId") && executableElement.getParameters().isEmpty()) {
@@ -147,10 +147,10 @@ public class Generator extends AbstractProcessor {
                 }
             } else if (typeElement.getKind() != ElementKind.CLASS) {
                 success = false;
-                printError(typeElement.getKind().name().toLowerCase() + "  cannot declare a " + Service.Single.class.getName() + " annotation", typeElement);
+                printError(typeElement.getKind().name().toLowerCase() + "  cannot declare a " + Service.Singleton.class.getName() + " annotation", typeElement);
             } else {
                 success = false;
-                printError("non service class cannot declare a " + Service.Single.class.getName() + " annotation", typeElement);
+                printError("non service class cannot declare a " + Service.Singleton.class.getName() + " annotation", typeElement);
             }
         }
 
@@ -160,14 +160,16 @@ public class Generator extends AbstractProcessor {
                 printError("the name of the method is illegal", executableElement);
             }
 
-            if (!isServiceType) {
-                success = false;
-                printError("endpoint method cannot declare in non service class", executableElement);
-            } else {
-                for (Modifier illegalModifier : illegalMethodModifiers) {
-                    if (executableElement.getModifiers().contains(illegalModifier)) {
-                        success = false;
-                        printError("endpoint method cant not declare one of " + illegalMethodModifiers, executableElement);
+            if (executableElement.getAnnotation(Endpoint.class) != null) {
+                if (!isServiceType) {
+                    success = false;
+                    printError("endpoint method cannot declare in non service class", executableElement);
+                } else {
+                    for (Modifier illegalModifier : illegalMethodModifiers) {
+                        if (executableElement.getModifiers().contains(illegalModifier)) {
+                            success = false;
+                            printError("endpoint method cant not declare one of " + illegalMethodModifiers, executableElement);
+                        }
                     }
                 }
             }
@@ -192,9 +194,9 @@ public class Generator extends AbstractProcessor {
         serviceClass.setComment(elementUtils.getDocComment(typeElement));
         serviceClass.setOriginalTypeParameters(processTypeParameters(typeElement.getTypeParameters()));
 
-        Service.Single single = typeElement.getAnnotation(Service.Single.class);
-        if (single != null) {
-            serviceClass.setServiceId(single.id());
+        Service.Singleton singleton = typeElement.getAnnotation(Service.Singleton.class);
+        if (singleton != null) {
+            serviceClass.setServiceId(singleton.id());
         }
 
         for (ExecutableElement executableElement : executableElements) {

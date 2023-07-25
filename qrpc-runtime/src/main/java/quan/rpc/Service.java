@@ -37,9 +37,9 @@ public abstract class Service implements Executor {
         if (id != null) {
             return id;
         }
-        Single single = getClass().getAnnotation(Single.class);
-        if (single != null) {
-            id = single.id();
+        Singleton singleton = getClass().getAnnotation(Singleton.class);
+        if (singleton != null) {
+            id = singleton.id();
             return id;
         }
         throw new IllegalStateException("服务ID不存在");
@@ -105,7 +105,7 @@ public abstract class Service implements Executor {
      */
     @Target(ElementType.TYPE)
     @Retention(RetentionPolicy.RUNTIME)
-    public @interface Single {
+    public @interface Singleton {
 
         /**
          * 服务ID
