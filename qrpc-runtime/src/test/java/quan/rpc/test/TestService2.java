@@ -18,8 +18,6 @@ public class TestService2 extends UpdatableService {
 
     private int id;
 
-    private long lastTime;
-
     private NodeIdResolver nodeIdResolver = new NodeIdResolver() {
 
         int count = 0;
@@ -45,6 +43,11 @@ public class TestService2 extends UpdatableService {
     @Override
     public Object getId() {
         return id;
+    }
+
+    @Override
+    protected void init() {
+        newTimer(this::add, 1000, 5000);
     }
 
     /**
@@ -88,17 +91,15 @@ public class TestService2 extends UpdatableService {
 
     @Override
     protected void update() {
-        long now = System.currentTimeMillis();
-        if (lastTime > 0 && now < lastTime + 5000) {
-            return;
-        }
-        lastTime = now;
+    }
 
+    private void add() {
         logger.info("TestService2:{} call TestService1 at Worker:{}", this.id, this.getWorker().getId());
 
-        int a = (int) (now % 3);
-        int b = (int) (now % 10);
         long startTime = System.nanoTime();
+        int a = (int) (startTime % 3);
+        int b = (int) (startTime % 10);
+
         Promise<Integer> promise = testService1Proxy.add1(a, b);
         promise.then(result -> {
             double costTime = (System.nanoTime() - startTime) / 1000000D;

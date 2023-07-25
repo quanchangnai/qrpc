@@ -67,21 +67,21 @@ public abstract class Service implements Executor {
     }
 
     /**
-     * 延迟执行任务
+     * 创建一个延迟执行的定时器
      *
-     * @see Worker#execute(Runnable, long)
+     * @see Worker#newTimer(Runnable, long)
      */
-    public void execute(Runnable task, long delay) {
-        worker.execute(task, delay);
+    public void newTimer(Runnable task, long delay) {
+        worker.newTimer(task, delay);
     }
 
     /**
-     * 周期性执行任务
+     * 创建一个周期性执行的定时器
      *
-     * @see Worker#execute(Runnable, long, long) (Runnable, long, long)
+     * @see Worker#newTimer(Runnable, long, long)
      */
-    public void execute(Runnable task, long delay, long period) {
-        worker.execute(task, delay, period);
+    public void newTimer(Runnable task, long delay, long period) {
+        worker.newTimer(task, delay, period);
     }
 
     public final <R> DelayedResult<R> newDelayedResult() {

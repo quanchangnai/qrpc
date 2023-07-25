@@ -14,7 +14,7 @@ import java.util.function.Supplier;
  * @author quanchangnai
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
-public class Promise<R> {
+public class Promise<R> implements Comparable<Promise<?>> {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
@@ -239,4 +239,8 @@ public class Promise<R> {
         return getHelpPromise();
     }
 
+    @Override
+    public int compareTo(Promise<?> other) {
+        return Long.compare(this.expiredTime, other.expiredTime);
+    }
 }

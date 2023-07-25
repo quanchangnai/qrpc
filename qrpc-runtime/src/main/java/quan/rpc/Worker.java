@@ -52,15 +52,15 @@ public class Worker implements Executor {
 
     private final Map<Long, Promise<Object>> mappedPromises = new HashMap<>();
 
-    private final TreeSet<Promise<Object>> sortedPromises = new TreeSet<>(Comparator.comparingLong(Promise::getExpiredTime));
+    private final TreeSet<Promise<Object>> sortedPromises = new TreeSet<>();
 
-    private final TreeSet<DelayedResult<Object>> delayedResults = new TreeSet<>(Comparator.comparingLong(DelayedResult::getExpiredTime));
+    private final TreeSet<DelayedResult<Object>> delayedResults = new TreeSet<>();
 
     //定时任务队列
-    private final PriorityQueue<TimeTask> timeTaskQueue = new PriorityQueue<>(Comparator.comparingLong(TimeTask::getTime));
+    private final PriorityQueue<TimerTask> timerTaskQueue = new PriorityQueue<>();
 
     //等待入队的定时任务
-    private final List<TimeTask> timeTaskList = new ArrayList<>();
+    private final List<TimerTask> timerTaskList = new ArrayList<>();
 
     private ObjectWriter writer;
 
@@ -176,53 +176,58 @@ public class Worker implements Executor {
     @Override
     @SuppressWarnings("NullableProblems")
     public void execute(Runnable task) {
-        addTimeTask(task, 0, 0);
+        addTimerTask(task, 0, 0);
     }
 
     /**
-     * 延迟执行任务
+     * 创建一个延迟执行的定时器
      *
-     * @param task  任务
+     * @param task  定时器任务
      * @param delay 延迟时间
      */
-    public void execute(Runnable task, long delay) {
+    public Timer newTimer(Runnable task, long delay) {
         if (delay < 0) {
             throw new IllegalArgumentException("参数[delay]不能小于0");
         }
-        addTimeTask(task, delay, 0);
+
+        return addTimerTask(task, delay, 0);
     }
 
     /**
-     * 周期性执行任务
+     * 创建一个周期性执行的定时器
      *
-     * @param task   任务
+     * @param task   定时器任务
      * @param delay  延迟时间
      * @param period 周期时间
      */
-    public void execute(Runnable task, long delay, long period) {
+    public Timer newTimer(Runnable task, long delay, long period) {
         if (delay < 0) {
             throw new IllegalArgumentException("参数[delay]不能小于0");
         }
+
         int updateInterval = node.getUpdateInterval();
         if (period < updateInterval) {
             throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
         }
-        addTimeTask(task, delay, period);
+
+        return addTimerTask(task, delay, period);
     }
 
-    private void addTimeTask(Runnable task, long initDelay, long period) {
+    private TimerTask addTimerTask(Runnable task, long delay, long period) {
         Objects.requireNonNull(task, "参数[task]不能为空");
 
-        TimeTask timeTask = new TimeTask();
-        timeTask.time = System.currentTimeMillis() + initDelay;
-        timeTask.period = period;
-        timeTask.task = task;
+        TimerTask timerTask = new TimerTask();
+        timerTask.time = System.currentTimeMillis() + delay;
+        timerTask.period = period;
+        timerTask.task = task;
 
         if (thread == Thread.currentThread()) {
-            timeTaskList.add(timeTask);
+            timerTaskList.add(timerTask);
         } else {
-            run(() -> timeTaskList.add(timeTask));
+            run(() -> timerTaskList.add(timerTask));
         }
+
+        return timerTask;
     }
 
     /**
@@ -252,7 +257,7 @@ public class Worker implements Executor {
     private void doUpdate() {
         try {
             updateStartTime = System.currentTimeMillis();
-            runTimeTasks();
+            runTimerTasks();
             updateServices();
             expirePromises();
             expireDelayedResults();
@@ -272,18 +277,24 @@ public class Worker implements Executor {
         }
     }
 
-    private void runTimeTasks() {
-        timeTaskQueue.addAll(timeTaskList);
-        timeTaskList.clear();
+    private void runTimerTasks() {
+        if (!timerTaskList.isEmpty()) {
+            timerTaskQueue.addAll(timerTaskList);
+            timerTaskList.clear();
+        }
 
-        TimeTask timeTask = timeTaskQueue.peek();
-        while (timeTask != null && timeTask.isTimeUp()) {
-            timeTaskQueue.poll();
-            timeTask.run();
-            if (timeTask.period > 0) {
-                timeTaskList.add(timeTask);
+        TimerTask timerTask = timerTaskQueue.peek();
+        while (timerTask != null && (timerTask.isTimeUp() || timerTask.isCancelled())) {
+            timerTaskQueue.poll();
+
+            if (!timerTask.isCancelled()) {
+                timerTask.run();
+                if (!timerTask.isDone()) {
+                    timerTaskList.add(timerTask);
+                }
             }
-            timeTask = timeTaskQueue.peek();
+
+            timerTask = timerTaskQueue.peek();
         }
     }
 
@@ -538,12 +549,12 @@ public class Worker implements Executor {
     /**
      * 定时任务
      */
-    private static class TimeTask {
+    private static class TimerTask implements Timer, Comparable<TimerTask> {
 
-        static final Logger logger = LoggerFactory.getLogger(TimeTask.class);
+        static final Logger logger = LoggerFactory.getLogger(TimerTask.class);
 
         /**
-         * 期望的执行时间
+         * 期望执行时间
          */
         long time;
 
@@ -554,12 +565,28 @@ public class Worker implements Executor {
 
         Runnable task;
 
-        long getTime() {
-            return time;
+        @Override
+        public void cancel() {
+            time = -2;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return time == -2;
+        }
+
+        @Override
+        public boolean isDone() {
+            return time == -1;
         }
 
         boolean isTimeUp() {
-            return time < System.currentTimeMillis();
+            return time > 0 && time < System.currentTimeMillis();
+        }
+
+        @Override
+        public int compareTo(TimerTask other) {
+            return Long.compare(this.time, other.time);
         }
 
         public void run() {
@@ -572,6 +599,8 @@ public class Worker implements Executor {
             } finally {
                 if (period > 0) {
                     time = runTime + period;
+                } else {
+                    time = -1;
                 }
             }
         }
