@@ -28,13 +28,13 @@ public class Node {
 
     private final int id;
 
-    //刷帧的间隔时间(毫秒)
     private int updateInterval = 50;
 
     private long updateTime;
 
-    //调用的超时时间(秒)
     private int callTtl = 10;
+
+    private long timeOffset;
 
     private Function<CodedBuffer, ObjectReader> readerFactory = ObjectReader::new;
 
@@ -59,6 +59,8 @@ public class Node {
     private volatile boolean running;
 
     /**
+     * 构造RPC节点对象
+     *
      * @param id         节点ID
      * @param workerNum  工作线程数量
      * @param connectors 网络连接器，发送协议 {@link #sendProtocol(int, Protocol)}到远程节点时越靠前的{@link Connector}优先级越高
@@ -121,6 +123,20 @@ public class Node {
     }
 
     /**
+     * 增加时间偏移量(毫秒)
+     */
+    public void addTimeOffset(long timeOffset) {
+        if (timeOffset < 0) {
+            throw new IllegalArgumentException("时间偏移量不能小于0");
+        }
+        this.timeOffset += timeOffset;
+    }
+
+    public long getTimeOffset() {
+        return timeOffset;
+    }
+
+    /**
      * 设置{@link ObjectReader}工厂，用于扩展对象序列化
      */
     public void setReaderFactory(Function<CodedBuffer, ObjectReader> readerFactory) {
@@ -164,15 +180,6 @@ public class Node {
         workers = Collections.unmodifiableMap(workers);
         workerIds.addAll(workers.keySet());
     }
-
-    private Worker nextWorker() {
-        int workerId = workerIds.get(workerIndex++);
-        if (workerIndex >= workerIds.size()) {
-            workerIndex = 0;
-        }
-        return workers.get(workerId);
-    }
-
 
     public void start() {
         try {
@@ -221,16 +228,31 @@ public class Node {
 
     }
 
+    private Worker nextWorker() {
+        int workerId = workerIds.get(workerIndex++);
+        if (workerIndex >= workerIds.size()) {
+            workerIndex = 0;
+        }
+        return workers.get(workerId);
+    }
+
+    public long getTime() {
+        return System.currentTimeMillis() + timeOffset;
+    }
+
     public void addService(Service service) {
         addService(nextWorker(), service);
     }
 
-    public void addService(Worker worker, Service service) {
-        if (workers.get(worker.getId()) != worker) {
-            throw new IllegalArgumentException(String.format("参数[worker]不是节点[%s]管理的工作线程", this.id));
+    public void addService(int workerId, Service service) {
+        Worker worker = workers.get(workerId);
+        if (worker == null) {
+            throw new IllegalArgumentException(String.format("参数[workerId]不合法，不存在工作线程:%s", workerId));
         }
 
+        Objects.requireNonNull(service);
         Object serviceId = Objects.requireNonNull(service.getId(), "服务ID不能为空");
+
         if (services.putIfAbsent(serviceId, service) == null) {
             worker.run(() -> worker.doAddService(service));
         } else {
@@ -238,7 +260,20 @@ public class Node {
         }
     }
 
+    public void addService(Worker worker, Service service) {
+        Objects.requireNonNull(worker);
+        Objects.requireNonNull(service);
+
+        if (workers.get(worker.getId()) != worker) {
+            throw new IllegalArgumentException(String.format("参数[worker]不是节点[%s]管理的工作线程", this.id));
+        }
+
+        addService(worker.getId(), service);
+    }
+
     public void removeService(Object serviceId) {
+        Objects.requireNonNull(serviceId);
+
         Service service = services.remove(serviceId);
         if (service == null) {
             logger.error("服务[{}]不存在", serviceId);

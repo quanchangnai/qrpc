@@ -180,6 +180,13 @@ public class Worker implements Executor {
     }
 
     /**
+     * 当前时间戳，可能会在系统时间的基础上加偏移
+     */
+    public long getTime() {
+        return node.getTime();
+    }
+
+    /**
      * 创建一个延迟执行的定时器
      *
      * @param task  定时器任务
@@ -217,7 +224,7 @@ public class Worker implements Executor {
         Objects.requireNonNull(task, "参数[task]不能为空");
 
         TimerTask timerTask = new TimerTask();
-        timerTask.time = System.currentTimeMillis() + delay;
+        timerTask.time = getTime() + delay;
         timerTask.period = period;
         timerTask.task = task;
 
@@ -549,9 +556,7 @@ public class Worker implements Executor {
     /**
      * 定时任务
      */
-    private static class TimerTask implements Timer, Comparable<TimerTask> {
-
-        static final Logger logger = LoggerFactory.getLogger(TimerTask.class);
+    private class TimerTask implements Timer, Comparable<TimerTask> {
 
         /**
          * 期望执行时间
@@ -581,7 +586,7 @@ public class Worker implements Executor {
         }
 
         boolean isTimeUp() {
-            return time > 0 && time < System.currentTimeMillis();
+            return time > 0 && time < Worker.this.getTime();
         }
 
         @Override
@@ -591,7 +596,7 @@ public class Worker implements Executor {
 
         public void run() {
             //实际执行时间
-            long runTime = System.currentTimeMillis();
+            long runTime = Worker.this.getTime();
             try {
                 task.run();
             } catch (Exception e) {

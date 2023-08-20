@@ -67,6 +67,13 @@ public abstract class Service implements Executor {
     }
 
     /**
+     * @see Worker#getTime()
+     */
+    public long getTime() {
+        return worker.getTime();
+    }
+
+    /**
      * 创建一个延迟执行的定时器
      *
      * @see Worker#newTimer(Runnable, long)
