@@ -12,7 +12,7 @@ import java.util.Map;
  *
  * @author quanchangnai
  */
-public class TestService2 extends UpdatableService {
+public class TestService2 extends Service {
 
     private static Logger logger = LoggerFactory.getLogger(TestService2.class);
 
@@ -87,10 +87,6 @@ public class TestService2 extends UpdatableService {
     @Endpoint
     public <E> Integer size(List<? super Runnable> list) {
         return list.size();
-    }
-
-    @Override
-    protected void update() {
     }
 
     private void add() {

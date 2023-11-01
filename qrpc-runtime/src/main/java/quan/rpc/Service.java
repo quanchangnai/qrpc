@@ -78,8 +78,8 @@ public abstract class Service implements Executor {
      *
      * @see Worker#newTimer(Runnable, long)
      */
-    public void newTimer(Runnable task, long delay) {
-        worker.newTimer(task, delay);
+    public Timer newTimer(Runnable task, long delay) {
+        return worker.newTimer(task, delay);
     }
 
     /**
@@ -87,8 +87,8 @@ public abstract class Service implements Executor {
      *
      * @see Worker#newTimer(Runnable, long, long)
      */
-    public void newTimer(Runnable task, long delay, long period) {
-        worker.newTimer(task, delay, period);
+    public Timer newTimer(Runnable task, long delay, long period) {
+        return worker.newTimer(task, delay, period);
     }
 
     public final <R> DelayedResult<R> newDelayedResult() {

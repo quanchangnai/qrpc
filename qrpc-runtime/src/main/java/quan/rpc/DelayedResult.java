@@ -15,7 +15,7 @@ public final class DelayedResult<R> extends Promise<R> {
     private int securityModifier;
 
     DelayedResult(Worker worker) {
-       super(worker);
+        super(worker);
     }
 
     int getOriginNodeId() {
@@ -34,49 +34,32 @@ public final class DelayedResult<R> extends Promise<R> {
         this.securityModifier = securityModifier;
     }
 
+    void setHandler() {
+        then(r -> {
+            this.worker.handleDelayedResult(this);
+        }).except(e -> {
+            this.worker.handleDelayedResult(this);
+        });
+    }
+
     @Override
     public void setResult(R result) {
         if (this.isFinished()) {
             throw new IllegalStateException("不能重复设置延迟结果");
         }
 
-        if (Worker.current() != this.worker) {
-            this.worker.run(() -> setResult(result));
-            return;
-        }
-
-        try {
-            super.setResult(result);
-        } catch (Exception e) {
-            logger.error("", e);
-        }
-
-        if (originNodeId > 0) {
-            this.worker.handleDelayedResult(this);
-        }
+        this.worker.run(() -> super.setResult(result));
     }
 
     @Override
     public void setException(Exception exception) {
         Objects.requireNonNull(exception, "参数[exception]不能为空");
+
         if (this.isFinished()) {
             throw new IllegalStateException("不能重复设置延迟结果");
         }
 
-        if (Worker.current() != this.worker) {
-            this.worker.run(() -> setException(exception));
-            return;
-        }
-
-        try {
-            super.setException(exception);
-        } catch (Exception e) {
-            logger.error("", e);
-        }
-
-        if (originNodeId > 0) {
-            this.worker.handleDelayedResult(this);
-        }
+        this.worker.run(() -> super.setException(exception));
     }
 
     String getExceptionStr() {

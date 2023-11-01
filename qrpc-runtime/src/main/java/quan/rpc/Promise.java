@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 /**
  * 用于监听远程方法的调用结果等
@@ -36,8 +35,6 @@ public class Promise<R> implements Comparable<Promise<?>> {
     private Object resultHandler;
 
     private Object exceptionHandler;
-
-    private Object timeoutHandler;
 
     private Promise helpPromise;
 
@@ -82,6 +79,10 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     protected void setResult(R result) {
+        if (this.finished) {
+            return;
+        }
+
         this.finished = true;
         this.result = result;
 
@@ -89,14 +90,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
             return;
         }
 
-        if (resultHandler instanceof Consumer) {
-            ((Consumer) resultHandler).accept(result);
-        } else {
-            Promise<?> handlerPromise = (Promise<?>) ((Function) resultHandler).apply(result);
-            if (handlerPromise != null) {
-                handlerPromise.delegate(helpPromise);
-            }
-        }
+        handle(resultHandler, result);
     }
 
     protected R getResult() {
@@ -104,6 +98,10 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     protected void setException(Exception exception) {
+        if (this.finished) {
+            return;
+        }
+
         this.finished = true;
         this.exception = exception;
 
@@ -114,18 +112,11 @@ public class Promise<R> implements Comparable<Promise<?>> {
         }
 
         if (exceptionHandler == null) {
-            logger.error("调用[{}]方法[{}]出错", callId, signature, exception);
+            logger.error("", exception);
             return;
         }
 
-        if (exceptionHandler instanceof Consumer) {
-            ((Consumer) exceptionHandler).accept(exception);
-        } else {
-            Promise<?> handlerPromise = (Promise<?>) ((Function) exceptionHandler).apply(exception);
-            if (handlerPromise != null) {
-                handlerPromise.delegate(helpPromise);
-            }
-        }
+        handle(exceptionHandler, exception);
     }
 
     protected void setExpiredTime() {
@@ -139,28 +130,9 @@ public class Promise<R> implements Comparable<Promise<?>> {
         return System.currentTimeMillis() > expiredTime;
     }
 
-    protected void setTimeout() {
-        this.finished = true;
-        if (timeoutHandler == null) {
-            if (callId > 0 && signature != null) {
-                logger.error("调用[{}]方法[{}]等待超时", callId, signature);
-            } else {
-                logger.error("{}等待超时", getClass().getSimpleName());
-            }
-            return;
-        }
-
-        if (timeoutHandler instanceof Runnable) {
-            try {
-                ((Runnable) timeoutHandler).run();
-            } catch (Throwable e) {
-                logger.error("", e);
-            }
-        } else {
-            Promise<?> handlerPromise = (Promise<?>) ((Supplier) timeoutHandler).get();
-            if (handlerPromise != null) {
-                handlerPromise.delegate(helpPromise);
-            }
+    protected void onExpired() {
+        if (!finished) {
+            setException(new CallException(null, true));
         }
     }
 
@@ -170,7 +142,21 @@ public class Promise<R> implements Comparable<Promise<?>> {
         promise.expiredTime = this.expiredTime;
         this.then(promise::setResult);
         this.except(promise::setException);
-        this.timeout(promise::setTimeout);
+    }
+
+    private void handle(Object handler, Object result) {
+        try {
+            if (handler instanceof Consumer) {
+                ((Consumer) handler).accept(result);
+            } else {
+                Promise<?> handlerPromise = (Promise<?>) ((Function) handler).apply(result);
+                if (handlerPromise != null) {
+                    handlerPromise.delegate(helpPromise);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("", e);
+        }
     }
 
     private void checkHandler(Object oldHandler, Object newHandler) {
@@ -183,9 +169,10 @@ public class Promise<R> implements Comparable<Promise<?>> {
     /**
      * 设置异步调用成功返回时的处理器
      */
-    public void then(Consumer<R> handler) {
+    public Promise<R> then(Consumer<R> handler) {
         checkHandler(this.resultHandler, handler);
         this.resultHandler = handler;
+        return this;
     }
 
     /**
@@ -217,25 +204,6 @@ public class Promise<R> implements Comparable<Promise<?>> {
     public <R2> Promise<R2> except(Function<Exception, Promise<R2>> handler) {
         checkHandler(this.exceptionHandler, handler);
         this.exceptionHandler = handler;
-        return getHelpPromise();
-    }
-
-    /**
-     * 设置异步调用超时返回的处理器
-     */
-    public void timeout(Runnable handler) {
-        checkHandler(this.timeoutHandler, handler);
-        this.timeoutHandler = handler;
-    }
-
-    /**
-     * 设置异步调用超时返回的处理器
-     *
-     * @see #then(Function)
-     */
-    public <R2> Promise<R2> timeout(Supplier<Promise<R2>> handler) {
-        checkHandler(this.timeoutHandler, handler);
-        this.timeoutHandler = handler;
         return getHelpPromise();
     }
 

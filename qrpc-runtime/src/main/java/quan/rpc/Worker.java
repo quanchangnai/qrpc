@@ -46,7 +46,7 @@ public class Worker implements Executor {
     //管理的所有服务，key:服务ID
     private final Map<Object, Service> allServices = new HashMap<>();
 
-    private final Set<UpdatableService> updatableServices = new HashSet<>();
+    private Set<Updatable> updatables = new HashSet<>();
 
     private int nextCallId = 1;
 
@@ -88,10 +88,12 @@ public class Worker implements Executor {
 
     protected void doAddService(Service service) {
         service.worker = this;
+
         allServices.put(service.getId(), service);
-        if (service instanceof UpdatableService) {
-            updatableServices.add((UpdatableService) service);
+        if (service instanceof Updatable) {
+            updatables.add((Updatable) service);
         }
+
         if (running) {
             initService(service);
         }
@@ -118,12 +120,13 @@ public class Worker implements Executor {
         if (running) {
             destroyService(service);
         }
-        service.worker = null;
-        allServices.remove(serviceId);
-        if (service instanceof UpdatableService) {
-            updatableServices.remove(service);
-        }
 
+        service.worker = null;
+
+        allServices.remove(serviceId);
+        if (service instanceof Updatable) {
+            updatables.remove(service);
+        }
     }
 
     private void destroyService(Service service) {
@@ -264,8 +267,8 @@ public class Worker implements Executor {
     private void doUpdate() {
         try {
             updateStartTime = System.currentTimeMillis();
-            runTimerTasks();
             updateServices();
+            runTimerTasks();
             expirePromises();
             expireDelayedResults();
             checkUpdateTime();
@@ -275,11 +278,11 @@ public class Worker implements Executor {
     }
 
     private void updateServices() {
-        for (UpdatableService service : updatableServices) {
+        for (Updatable updatable : updatables) {
             try {
-                service.update();
-            } catch (Throwable e) {
-                logger.error("服务[{}]刷帧出错", service.getId(), e);
+                updatable.update();
+            } catch (Exception e) {
+                logger.error("服务刷帧出错", e);
             }
         }
     }
@@ -318,7 +321,7 @@ public class Worker implements Executor {
             }
             iterator.remove();
             mappedPromises.remove(promise.getCallId());
-            promise.setTimeout();
+            promise.onExpired();
         }
     }
 
@@ -334,8 +337,7 @@ public class Worker implements Executor {
                 return;
             }
             iterator.remove();
-            delayedResults.remove(delayedResult);
-            delayedResult.setTimeout();
+            delayedResult.onExpired();
         }
     }
 
@@ -501,6 +503,7 @@ public class Worker implements Executor {
                 delayedResult.setCallId(callId);
                 delayedResult.setOriginNodeId(originNodeId);
                 delayedResult.setSecurityModifier(securityModifier);
+                delayedResult.setHandler();
                 return;
             } else {
                 exception = delayedResult.getExceptionStr();
@@ -516,6 +519,10 @@ public class Worker implements Executor {
 
     @SuppressWarnings("rawtypes")
     protected void handleDelayedResult(DelayedResult delayedResult) {
+        if (!delayedResults.contains(delayedResult)) {
+            return;
+        }
+
         int originNodeId = delayedResult.getOriginNodeId();
         Object result = makeResultSafe(originNodeId, delayedResult.getSecurityModifier(), delayedResult.getResult());
         Response response = new Response(node.getId(), delayedResult.getCallId(), result, delayedResult.getExceptionStr());
@@ -527,7 +534,7 @@ public class Worker implements Executor {
         if (!mappedPromises.containsKey(callId)) {
             logger.error("处理RPC响应，调用[{}]不存在或者已超时", callId);
         } else {
-            handlePromise(callId, CallException.create(response), response.getResult());
+            handlePromise(callId, CallException.create(response.getException()), response.getResult());
         }
     }
 
@@ -550,7 +557,10 @@ public class Worker implements Executor {
     }
 
     public <R> DelayedResult<R> newDelayedResult() {
-        return new DelayedResult<>(this);
+        DelayedResult<R> delayedResult = new DelayedResult<>(this);
+        //noinspection unchecked
+        delayedResults.add((DelayedResult<Object>) delayedResult);
+        return delayedResult;
     }
 
     /**

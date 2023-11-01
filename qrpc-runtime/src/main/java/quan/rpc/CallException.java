@@ -1,6 +1,6 @@
 package quan.rpc;
 
-import quan.rpc.protocol.Response;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * 远程调用异常
@@ -13,10 +13,18 @@ public class CallException extends RuntimeException {
 
     private String signature;
 
-    private String message = "";
+    private boolean timeout;
+
+    public CallException() {
+    }
 
     public CallException(String message) {
         super(message);
+    }
+
+    public CallException(String message, boolean timeout) {
+        super(message);
+        this.timeout = timeout;
     }
 
     public CallException(String message, Throwable cause) {
@@ -31,17 +39,34 @@ public class CallException extends RuntimeException {
         this.signature = signature;
     }
 
-    @Override
-    public String getMessage() {
-        if (callId > 0 && signature != null && message.isEmpty()) {
-            message = String.format("调用[%s]方法[%s]返回异常：", callId, signature);
-        }
-        return message + super.getMessage();
+    public boolean isTimeout() {
+        return timeout;
     }
 
-    public static CallException create(Response response) {
-        if (response.getException() != null) {
-            return new CallException(response.getException());
+    @Override
+    public String getMessage() {
+        String message = "调用";
+
+        if (callId > 0 && signature != null) {
+            message = String.format("[%s]方法[%s]", callId, signature);
+        }
+
+        if (timeout) {
+            message += "超时";
+        } else {
+            message += "返回异常";
+        }
+
+        if (!StringUtils.isBlank(super.getMessage())) {
+            message += ":" + super.getMessage();
+        }
+
+        return message;
+    }
+
+    public static CallException create(String exceptionStr) {
+        if (exceptionStr != null) {
+            return new CallException(exceptionStr);
         } else {
             return null;
         }

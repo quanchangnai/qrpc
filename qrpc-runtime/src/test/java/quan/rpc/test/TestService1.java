@@ -4,14 +4,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quan.rpc.Endpoint;
 import quan.rpc.Promise;
-import quan.rpc.UpdatableService;
+import quan.rpc.Service;
+import quan.rpc.Updatable;
 
 import java.util.*;
 
 /**
  * 测试服务1
  */
-public class TestService1 extends UpdatableService {
+public class TestService1 extends Service implements Updatable {
 
     private static Logger logger = LoggerFactory.getLogger(TestService1.class);
 
@@ -28,6 +29,7 @@ public class TestService1 extends UpdatableService {
         this.id = id;
     }
 
+
     @Override
     public Object getId() {
         return id;
@@ -42,7 +44,7 @@ public class TestService1 extends UpdatableService {
         logger.info("Execute TestService1:{}.add1({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
         Promise<Integer> promise = testService2Proxy.add3(r, a);
         promise.then(r3 -> {
-            logger.info("TestService1:{} call TestService2.add3({},{})={}", id, a, b, r3);
+            logger.info("TestService1:{} call TestService2.add3({},{})={}", id, r, a, r3);
         });
         return r;
     }
@@ -82,7 +84,7 @@ public class TestService1 extends UpdatableService {
     }
 
     @Override
-    protected void update() {
+    public void update() {
         long now = System.currentTimeMillis();
         if (now > 0) {
             return;
