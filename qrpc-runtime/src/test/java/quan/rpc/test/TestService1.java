@@ -28,53 +28,19 @@ public class TestService1 extends Service {
         this.id = id;
     }
 
-
     @Override
     public Object getId() {
         return id;
     }
 
-    /**
-     * a+b
-     */
-    @Endpoint
-    public int add1(Integer a, Integer b) {
-        int r = a + b;
-        logger.info("Execute TestService1:{}.add1({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
-        Promise<Integer> promise = testService2Proxy.add3(r, a);
-        promise.then(r3 -> {
-            logger.info("TestService1:{} call TestService2.add3({},{})={}", id, r, a, r3);
-        });
-        return r;
-    }
-
-    @Endpoint
-    public int add2(Integer a, Integer b) {
-        int r = a + b;
-        logger.info("Execute TestService1:{}.add2({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
-        return r;
-    }
-
-    @Endpoint
-    public void remove(Map<Integer, String> map, int a) {
-        map.remove(a);
-        logger.info("Execute TestService1:{}.remove({}) at Worker:{}", id, a, this.getWorker().getId());
-    }
-
-    @Endpoint
-    public <E> Integer size(List<? super Runnable> list) {
-        return list.size();
-    }
-
-    @Endpoint
-    public Integer size(Set<?> set) {
-        return set.size();
-    }
-
 
     @Override
     protected void init() {
-        logger.info("TestService1:{} init at worker{}", this.id, this.getWorker().getId());
+        logger.info("TestService1:{} init at worker:{},thread:{}", this.id, this.getWorker().getId(), Thread.currentThread());
+        newTimer(() -> {
+            System.err.println("cron timer execute,time：" + getTime() + ",thread:" + Thread.currentThread());
+        }, "0/10 * * * * ? ");
+
     }
 
     @Override
@@ -113,6 +79,44 @@ public class TestService1 extends Service {
             logger.info("roleService1Proxy.count()={}", c);
         });
 
+    }
+
+
+    /**
+     * a+b
+     */
+    @Endpoint
+    public int add1(Integer a, Integer b) {
+        int r = a + b;
+        logger.info("Execute TestService1:{}.add1({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
+        Promise<Integer> promise = testService2Proxy.add3(r, a);
+        promise.then(r3 -> {
+            logger.info("TestService1:{} call TestService2.add3({},{})={}", id, r, a, r3);
+        });
+        return r;
+    }
+
+    @Endpoint
+    public int add2(Integer a, Integer b) {
+        int r = a + b;
+        logger.info("Execute TestService1:{}.add2({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
+        return r;
+    }
+
+    @Endpoint
+    public void remove(Map<Integer, String> map, int a) {
+        map.remove(a);
+        logger.info("Execute TestService1:{}.remove({}) at Worker:{}", id, a, this.getWorker().getId());
+    }
+
+    @Endpoint
+    public <E> Integer size(List<? super Runnable> list) {
+        return list.size();
+    }
+
+    @Endpoint
+    public Integer size(Set<?> set) {
+        return set.size();
     }
 
 }

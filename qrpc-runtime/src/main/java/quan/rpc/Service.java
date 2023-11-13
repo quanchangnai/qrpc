@@ -23,6 +23,8 @@ public abstract class Service implements Executor {
      */
     private Object id;
 
+    volatile int state = 0;
+
     /**
      * 服务所属的线程工作者
      */
@@ -81,17 +83,27 @@ public abstract class Service implements Executor {
      * @see TimerQueue#newTimer(Runnable, long)
      */
     public Timer newTimer(Runnable task, long delay) {
-        return worker.newTimer(task, delay);
+        return timerQueue.newTimer(task, delay);
     }
 
     /**
      * 创建一个周期性执行的定时器
      *
-     * @see Worker#newTimer(Runnable, long, long)
+     * @see TimerQueue#newTimer(Runnable, long, long)
      */
     public Timer newTimer(Runnable task, long delay, long period) {
-        return worker.newTimer(task, delay, period);
+        return timerQueue.newTimer(task, delay, period);
     }
+
+    /**
+     * 创建一个基于cron表达式的定时器
+     *
+     * @see TimerQueue#newTimer(Runnable, String)
+     */
+    public Timer newTimer(Runnable task, String cron) {
+        return timerQueue.newTimer(task, cron);
+    }
+
 
     public final <R> DelayedResult<R> newDelayedResult() {
         return worker.newDelayedResult();

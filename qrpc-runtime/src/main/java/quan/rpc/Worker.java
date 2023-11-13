@@ -124,18 +124,24 @@ public class Worker implements Executor {
     }
 
     protected void initService(Service service) {
-        try {
-            service.init();
-        } catch (Exception e) {
-            logger.error("服务[{}]初始化异常", service.getId(), e);
+        if (service.state == 0) {
+            try {
+                service.state = 1;
+                service.init();
+            } catch (Exception e) {
+                logger.error("服务[{}]初始化异常", service.getId(), e);
+            }
         }
     }
 
     protected void destroyService(Service service) {
-        try {
-            service.destroy();
-        } catch (Exception e) {
-            logger.error("服务[{}]销毁异常", service.getId(), e);
+        if (service.state == 1) {
+            try {
+                service.state = 2;
+                service.destroy();
+            } catch (Exception e) {
+                logger.error("服务[{}]销毁异常", service.getId(), e);
+            }
         }
     }
 
@@ -230,6 +236,15 @@ public class Worker implements Executor {
      */
     public Timer newTimer(Runnable task, long delay, long period) {
         return timerQueue.newTimer(task, delay, period);
+    }
+
+    /**
+     * 创建一个基于cron表达式的定时器
+     *
+     * @see TimerQueue#newTimer(Runnable, String)
+     */
+    public Timer newTimer(Runnable task, String cron) {
+        return timerQueue.newTimer(task, cron);
     }
 
 
