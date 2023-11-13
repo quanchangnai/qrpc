@@ -5,14 +5,13 @@ import org.slf4j.LoggerFactory;
 import quan.rpc.Endpoint;
 import quan.rpc.Promise;
 import quan.rpc.Service;
-import quan.rpc.Updatable;
 
 import java.util.*;
 
 /**
  * 测试服务1
  */
-public class TestService1 extends Service implements Updatable {
+public class TestService1 extends Service {
 
     private static Logger logger = LoggerFactory.getLogger(TestService1.class);
 
@@ -84,7 +83,7 @@ public class TestService1 extends Service implements Updatable {
     }
 
     @Override
-    public void update() {
+    protected void update() {
         long now = System.currentTimeMillis();
         if (now > 0) {
             return;

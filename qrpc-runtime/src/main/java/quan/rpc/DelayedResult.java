@@ -48,7 +48,7 @@ public final class DelayedResult<R> extends Promise<R> {
             throw new IllegalStateException("不能重复设置延迟结果");
         }
 
-        this.worker.run(() -> super.setResult(result));
+        this.worker.execute(() -> super.setResult(result));
     }
 
     @Override
@@ -59,7 +59,7 @@ public final class DelayedResult<R> extends Promise<R> {
             throw new IllegalStateException("不能重复设置延迟结果");
         }
 
-        this.worker.run(() -> super.setException(exception));
+        this.worker.execute(() -> super.setException(exception));
     }
 
     String getExceptionStr() {

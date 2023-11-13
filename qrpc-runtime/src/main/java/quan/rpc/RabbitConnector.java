@@ -66,7 +66,7 @@ public class RabbitConnector extends Connector {
 
     protected void start() {
         BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("rabbit-connector-thread-%d").build();
-        executor = Executors.newScheduledThreadPool(node.getWorkerNum(), threadFactory);
+        executor = Executors.newScheduledThreadPool(node.getConfig().getWorkerNum(), threadFactory);
         channelHolder = ThreadLocal.withInitial(this::initChannel);
         executor.execute(this::connect);
     }
@@ -137,7 +137,7 @@ public class RabbitConnector extends Connector {
 
             String queueName = queueName(node.getId());
             Map<String, Object> queueArgs = new HashMap<>();
-            queueArgs.put("x-message-ttl", node.getCallTtl() * 1000);//设置队列里消息的过期时间
+            queueArgs.put("x-message-ttl", node.getConfig().getCallTtl() * 1000);//设置队列里消息的过期时间
             channel.queueDeclare(queueName, false, true, true, queueArgs);
             channel.queueBind(queueName, exchangeName, "");
 
@@ -146,7 +146,7 @@ public class RabbitConnector extends Connector {
                 public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) {
                     try {
                         CodedBuffer buffer = new DefaultCodedBuffer(body);
-                        Protocol protocol = node.getReaderFactory().apply(buffer).read();
+                        Protocol protocol = node.getConfig().getReaderFactory().apply(buffer).read();
                         handleProtocol(protocol);
                     } catch (Exception e) {
                         logger.error("处理协议出错", e);
@@ -168,11 +168,11 @@ public class RabbitConnector extends Connector {
     @Override
     protected void sendProtocol(int remoteId, Protocol protocol) {
         Worker worker = Worker.current();
-        //异步发送，防止阻塞工作线程
+        //异步发送，防止阻塞线程工作者
         executor.execute(() -> {
             try {
                 CodedBuffer buffer = new DefaultCodedBuffer();
-                ObjectWriter objectWriter = node.getWriterFactory().apply(buffer);
+                ObjectWriter objectWriter = node.getConfig().getWriterFactory().apply(buffer);
                 objectWriter.write(protocol);
 
                 //exchange不存在时不会报错，会异步关闭channel
@@ -181,7 +181,7 @@ public class RabbitConnector extends Connector {
                 if (protocol instanceof Request) {
                     CallException callException = new CallException(String.format("发送协议到远程节点[%s]出错", remoteId), e);
                     long callId = ((Request) protocol).getCallId();
-                    worker.run(() -> worker.handlePromise(callId, callException, null));
+                    worker.execute(() -> worker.handlePromise(callId, callException, null));
                 } else {
                     logger.error("发送协议出错，{}", protocol, e);
                 }

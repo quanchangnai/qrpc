@@ -11,7 +11,11 @@ import quan.rpc.RabbitConnector;
 
 public class RpcTest1 {
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) {
+        Node.Config config = new Node.Config();
+        config.setSingleThreadWorkerNum(1);
+        config.addThreadPoolWorker(10);
+
         NettyConnector nettyConnector = new NettyConnector("127.0.0.1", 8888);
 
         ConnectionFactory connectionFactory = new ConnectionFactory();
@@ -22,9 +26,11 @@ public class RpcTest1 {
         connectionFactory.setPassword("guest");
         RabbitConnector rabbitConnector = new RabbitConnector(connectionFactory);
 
-        Node node = new Node(1, nettyConnector, rabbitConnector);
+        Node node = new Node(1, config, nettyConnector, rabbitConnector);
+
         node.addService(new TestService1(1));
         node.addService(new RoleService1<>(2));
+
         node.start();
 
     }

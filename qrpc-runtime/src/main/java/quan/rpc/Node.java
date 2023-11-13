@@ -1,5 +1,6 @@
 package quan.rpc;
 
+import org.apache.commons.lang3.RandomUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * RPC节点
@@ -28,28 +30,14 @@ public class Node {
 
     private final int id;
 
-    private int updateInterval = 50;
-
-    private long updateTime;
-
-    private int callTtl = 10;
+    private final Config config;
 
     private long timeOffset;
 
-    private Function<CodedBuffer, ObjectReader> readerFactory = ObjectReader::new;
-
-    private Function<CodedBuffer, ObjectWriter> writerFactory = ObjectWriter::new;
-
     private LinkedHashSet<Connector> connectors = new LinkedHashSet<>();
 
-    private NodeIdResolver targetNodeIdResolver;
-
-    //管理的所有工作线程，key:工作线程ID
+    //key:线程工作者ID
     private Map<Integer, Worker> workers = new HashMap<>();
-
-    private final List<Integer> workerIds = new ArrayList<>();
-
-    private int workerIndex;
 
     //管理的所有服务，key:服务ID
     private final Map<Object, Service> services = new ConcurrentHashMap<>();
@@ -58,17 +46,24 @@ public class Node {
 
     private volatile boolean running;
 
+    //刷帧开始时间
+    private long updateTime;
+
+
     /**
      * 构造RPC节点对象
      *
      * @param id         节点ID
-     * @param workerNum  工作线程数量
+     * @param config     节点配置
      * @param connectors 网络连接器，发送协议 {@link #sendProtocol(int, Protocol)}到远程节点时越靠前的{@link Connector}优先级越高
      */
-    public Node(int id, int workerNum, Connector... connectors) {
+    public Node(int id, Config config, Connector... connectors) {
         Validate.isTrue(id > 0, "节点ID必须是正整数");
         this.id = id;
-        this.initWorkers(workerNum);
+        this.config = config == null ? new Config() : config;
+        this.config.readonly = true;
+
+        this.initWorkers();
 
         for (Connector connector : connectors) {
             connector.node = this;
@@ -77,49 +72,19 @@ public class Node {
     }
 
     public Node(int id, Connector... connectors) {
-        this(id, 0, connectors);
-    }
-
-    public Node(int id) {
-        this(id, 0);
+        this(id, null, connectors);
     }
 
     public final int getId() {
         return id;
     }
 
+    public Config getConfig() {
+        return config;
+    }
+
     public final Map<Integer, Worker> getWorkers() {
         return workers;
-    }
-
-    public final int getWorkerNum() {
-        return workers.size();
-    }
-
-    /**
-     * 设置刷帧的间隔时间(ms)
-     */
-    public void setUpdateInterval(int updateInterval) {
-        if (updateInterval > 0) {
-            this.updateInterval = updateInterval;
-        }
-    }
-
-    public int getUpdateInterval() {
-        return updateInterval;
-    }
-
-    public int getCallTtl() {
-        return callTtl;
-    }
-
-    /**
-     * 设置调用的超时时间(秒)
-     */
-    public void setCallTtl(int callTtl) {
-        if (callTtl > 0) {
-            this.callTtl = callTtl;
-        }
     }
 
     /**
@@ -136,56 +101,26 @@ public class Node {
         return timeOffset;
     }
 
-    /**
-     * 设置{@link ObjectReader}工厂，用于扩展对象序列化
-     */
-    public void setReaderFactory(Function<CodedBuffer, ObjectReader> readerFactory) {
-        this.readerFactory = Objects.requireNonNull(readerFactory);
-    }
 
-    public Function<CodedBuffer, ObjectReader> getReaderFactory() {
-        return readerFactory;
-    }
-
-    /**
-     * 设置{@link ObjectWriter}工厂，用于扩展对象序列化
-     */
-    public void setWriterFactory(Function<CodedBuffer, ObjectWriter> writerFactory) {
-        this.writerFactory = Objects.requireNonNull(writerFactory);
-    }
-
-    public Function<CodedBuffer, ObjectWriter> getWriterFactory() {
-        return writerFactory;
-    }
-
-
-    public void setTargetNodeIdResolver(NodeIdResolver targetNodeIdResolver) {
-        this.targetNodeIdResolver = targetNodeIdResolver;
-    }
-
-    public NodeIdResolver getTargetNodeIdResolver() {
-        return targetNodeIdResolver;
-    }
-
-    private void initWorkers(int workerNum) {
-        if (workerNum <= 0) {
-            workerNum = Runtime.getRuntime().availableProcessors();
-        }
-
-        for (int i = 0; i < workerNum; i++) {
+    private void initWorkers() {
+        for (int i = 0; i < config.singleThreadWorkerNum; i++) {
             Worker worker = new Worker(this);
             workers.put(worker.getId(), worker);
         }
 
+        for (Integer nThreads : config.threadPoolWorkers) {
+            Worker worker = new ThreadPoolWorker(this, nThreads);
+            workers.put(worker.getId(), worker);
+        }
+
         workers = Collections.unmodifiableMap(workers);
-        workerIds.addAll(workers.keySet());
     }
 
     public void start() {
         try {
             workers.values().forEach(Worker::start);
-            executor = Executors.newScheduledThreadPool(1, r -> new Thread(r, "node-thread"));
-            executor.scheduleAtFixedRate(this::update, updateInterval, updateInterval, TimeUnit.MILLISECONDS);
+            executor = Executors.newScheduledThreadPool(1, r -> new Thread(r, "node-" + id));
+            executor.scheduleAtFixedRate(this::update, config.updateInterval, config.updateInterval, TimeUnit.MILLISECONDS);
             connectors.forEach(Connector::start);
         } finally {
             running = true;
@@ -199,7 +134,6 @@ public class Node {
         connectors.forEach(Connector::stop);
         workers.values().forEach(Worker::stop);
         workers = new HashMap<>();
-        workerIds.clear();
     }
 
     public boolean isRunning() {
@@ -214,8 +148,8 @@ public class Node {
         long currentTime = System.currentTimeMillis();
         long actualInterval = currentTime - updateTime;
 
-        if (updateTime > 0 && actualInterval > updateInterval * 2L) {
-            logger.error("实际刷帧间隔时间({})过长", actualInterval);
+        if (updateTime > 0 && actualInterval > config.updateInterval * 2L) {
+            logger.error("节点({})实际刷帧间隔时间({})过长", id, actualInterval);
         }
 
         updateTime = currentTime;
@@ -229,11 +163,7 @@ public class Node {
     }
 
     private Worker nextWorker() {
-        int workerId = workerIds.get(workerIndex++);
-        if (workerIndex >= workerIds.size()) {
-            workerIndex = 0;
-        }
-        return workers.get(workerId);
+        return (Worker) workers.values().toArray()[RandomUtils.nextInt(0, workers.size())];
     }
 
     public long getTime() {
@@ -241,34 +171,43 @@ public class Node {
     }
 
     public void addService(Service service) {
-        addService(nextWorker(), service);
+        addService(service, nextWorker());
     }
 
-    public void addService(int workerId, Service service) {
-        Worker worker = workers.get(workerId);
-        if (worker == null) {
-            throw new IllegalArgumentException(String.format("参数[workerId]不合法，不存在工作线程:%s", workerId));
-        }
-
+    public void addService(Service service, int workerId) {
         Objects.requireNonNull(service);
         Object serviceId = Objects.requireNonNull(service.getId(), "服务ID不能为空");
 
+        Worker worker = workers.get(workerId);
+        if (worker == null) {
+            throw new IllegalArgumentException(String.format("参数[workerId]不合法，不存在线程工作者:%s", workerId));
+        }
+
         if (services.putIfAbsent(serviceId, service) == null) {
-            worker.run(() -> worker.doAddService(service));
+            worker.execute(() -> worker.doAddService(service));
         } else {
             logger.error("服务[{}]已存在", serviceId);
         }
     }
 
-    public void addService(Worker worker, Service service) {
-        Objects.requireNonNull(worker);
+    public void addService(Service service, Worker worker) {
         Objects.requireNonNull(service);
+        Objects.requireNonNull(worker);
 
         if (workers.get(worker.getId()) != worker) {
-            throw new IllegalArgumentException(String.format("参数[worker]不是节点[%s]管理的工作线程", this.id));
+            throw new IllegalArgumentException(String.format("参数[worker]不是节点[%s]管理的线程工作者", this.id));
         }
 
-        addService(worker.getId(), service);
+        addService(service, worker.getId());
+    }
+
+    public void addService(Service service, Predicate<Worker> workerSelector) {
+        Worker worker = workers.values().stream().filter(workerSelector).findAny().orElse(null);
+        if (worker != null) {
+            addService(service, worker);
+        } else {
+            throw new IllegalStateException("没有找到合适的线程工作者");
+        }
     }
 
     public void removeService(Object serviceId) {
@@ -281,7 +220,7 @@ public class Node {
         }
 
         Worker worker = service.getWorker();
-        worker.run(() -> worker.doRemoveService(service));
+        worker.execute(() -> worker.doRemoveService(service));
     }
 
     protected void sendProtocol(int remoteId, Protocol protocol) {
@@ -319,7 +258,7 @@ public class Node {
             logger.error("处理RPC请求，服务[{}]不存在", request.getServiceId());
         } else {
             Worker worker = service.getWorker();
-            worker.run(() -> worker.handleRequest(request, securityModifier));
+            worker.execute(() -> worker.handleRequest(request, securityModifier));
         }
     }
 
@@ -347,9 +286,133 @@ public class Node {
         int workerId = (int) (callId >> 32);
         Worker worker = workers.get(workerId);
         if (worker == null) {
-            logger.error("处理RPC响应，工作线程[{}]不存在，originNodeId:{}，callId:{}", workerId, response.getOriginNodeId(), callId);
+            logger.error("处理RPC响应，线程工作者[{}]不存在，originNodeId:{}，callId:{}", workerId, response.getOriginNodeId(), callId);
         } else {
-            worker.run(() -> worker.handleResponse(response));
+            worker.execute(() -> worker.handleResponse(response));
+        }
+    }
+
+    public static class Config {
+
+        private boolean readonly;
+
+        private int updateInterval = 50;
+
+        private int callTtl = 10;
+
+        private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
+
+        private List<Integer> threadPoolWorkers = new ArrayList<>();
+
+        private Function<CodedBuffer, ObjectReader> readerFactory = ObjectReader::new;
+
+        private Function<CodedBuffer, ObjectWriter> writerFactory = ObjectWriter::new;
+
+        private NodeIdResolver targetNodeIdResolver;
+
+
+        private void checkReadonly() {
+            if (readonly) {
+                throw new IllegalStateException("当前状态不允许设置属性");
+            }
+        }
+
+
+        public int getUpdateInterval() {
+            return updateInterval;
+        }
+
+        /**
+         * 设置刷帧的间隔时间(ms)
+         */
+        public Config setUpdateInterval(int updateInterval) {
+            checkReadonly();
+            Validate.isTrue(updateInterval >= 10, "刷帧的间隔时间不能小于10毫秒");
+            this.updateInterval = updateInterval;
+            return this;
+        }
+
+        public int getCallTtl() {
+            return callTtl;
+        }
+
+        /**
+         * 设置调用的超时时间(秒)
+         */
+        public Config setCallTtl(int callTtl) {
+            checkReadonly();
+            Validate.isTrue(callTtl > 0, "调用的超时时间不能小于1秒");
+            this.callTtl = callTtl;
+            return this;
+        }
+
+        public int getSingleThreadWorkerNum() {
+            return singleThreadWorkerNum;
+        }
+
+        /**
+         * 设置单线程工作者数量
+         */
+        public Config setSingleThreadWorkerNum(int singleThreadWorkerNum) {
+            checkReadonly();
+            Validate.isTrue(singleThreadWorkerNum >= 1, "单线程工作者数量不能小于1");
+            this.singleThreadWorkerNum = singleThreadWorkerNum;
+            return this;
+        }
+
+        /**
+         * 添加线程池工作者
+         */
+        public void addThreadPoolWorker(int nThreads) {
+            Validate.isTrue(nThreads >= 2, "线程池工作者的线程数量不能小于2");
+            threadPoolWorkers.add(nThreads);
+        }
+
+        /**
+         * 工作者数量
+         */
+        public int getWorkerNum() {
+            return singleThreadWorkerNum + threadPoolWorkers.size();
+        }
+
+        public Function<CodedBuffer, ObjectReader> getReaderFactory() {
+            return readerFactory;
+        }
+
+        /**
+         * 设置{@link ObjectReader}工厂，用于扩展对象序列化
+         */
+        public Config setReaderFactory(Function<CodedBuffer, ObjectReader> readerFactory) {
+            checkReadonly();
+            this.readerFactory = Objects.requireNonNull(readerFactory);
+            return this;
+        }
+
+        public Function<CodedBuffer, ObjectWriter> getWriterFactory() {
+            return writerFactory;
+        }
+
+
+        /**
+         * 设置{@link ObjectWriter}工厂，用于扩展对象序列化
+         */
+        public Config setWriterFactory(Function<CodedBuffer, ObjectWriter> writerFactory) {
+            checkReadonly();
+            this.writerFactory = Objects.requireNonNull(writerFactory);
+            return this;
+        }
+
+        public NodeIdResolver getTargetNodeIdResolver() {
+            return targetNodeIdResolver;
+        }
+
+        /**
+         * 设置目标节点ID解析器
+         */
+        public Config setTargetNodeIdResolver(NodeIdResolver targetNodeIdResolver) {
+            checkReadonly();
+            this.targetNodeIdResolver = Objects.requireNonNull(targetNodeIdResolver);
+            return this;
         }
     }
 

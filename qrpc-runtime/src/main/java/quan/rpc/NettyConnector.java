@@ -141,7 +141,7 @@ public class NettyConnector extends Connector {
     protected void sendProtocol(ChannelHandlerContext context, Protocol protocol) {
         ByteBuf byteBuf = context.alloc().buffer();
         try {
-            ObjectWriter objectWriter = node.getWriterFactory().apply(new NettyCodedBuffer(byteBuf));
+            ObjectWriter objectWriter = node.getConfig().getWriterFactory().apply(new NettyCodedBuffer(byteBuf));
             objectWriter.write(protocol);
             // TODO 刷新会执行系统调用，需要优化
             context.writeAndFlush(byteBuf);
@@ -197,7 +197,7 @@ public class NettyConnector extends Connector {
 
         public void start() {
             EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-            EventLoopGroup workerGroup = new NioEventLoopGroup(connector.node.getWorkerNum());
+            EventLoopGroup workerGroup = new NioEventLoopGroup(connector.node.getConfig().getWorkerNum());
 
             serverBootstrap = new ServerBootstrap();
             serverBootstrap.group(bossGroup, workerGroup)
@@ -218,7 +218,7 @@ public class NettyConnector extends Connector {
                                 @Override
                                 public void channelRead(ChannelHandlerContext context, Object msg) {
                                     CodedBuffer buffer = new NettyCodedBuffer((ByteBuf) msg);
-                                    Protocol protocol = connector.node.getReaderFactory().apply(buffer).read();
+                                    Protocol protocol = connector.node.getConfig().getReaderFactory().apply(buffer).read();
 
                                     if (protocol instanceof Handshake) {
                                         if (!connector.handleHandshake((Handshake) protocol)) {
@@ -328,7 +328,7 @@ public class NettyConnector extends Connector {
                         }
                     });
 
-            group.scheduleAtFixedRate(this::update, 0, connector.node.getUpdateInterval(), TimeUnit.MILLISECONDS);
+            group.scheduleAtFixedRate(this::update, 0, connector.node.getConfig().getUpdateInterval(), TimeUnit.MILLISECONDS);
 
             connect();
         }

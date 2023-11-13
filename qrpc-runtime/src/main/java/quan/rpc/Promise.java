@@ -120,7 +120,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     protected void setExpiredTime() {
-        this.expiredTime = System.currentTimeMillis() + worker.getNode().getCallTtl() * 1000L;
+        this.expiredTime = System.currentTimeMillis() + worker.getNode().getConfig().getCallTtl() * 1000L;
     }
 
     /**

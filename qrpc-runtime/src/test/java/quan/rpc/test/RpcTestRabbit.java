@@ -17,10 +17,12 @@ public class RpcTestRabbit {
         connectionFactory.setUsername("guest");
         connectionFactory.setPassword("guest");
 
-
         RabbitConnector rabbitConnector = new RabbitConnector(connectionFactory);
-        Node node = new Node(3, 5, rabbitConnector);
+
+        Node node = new Node(3, rabbitConnector);
+
         node.addService(new TestService2(2));
+
         node.start();
     }
 

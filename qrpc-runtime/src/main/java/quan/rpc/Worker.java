@@ -10,12 +10,13 @@ import quan.rpc.serialize.ObjectReader;
 import quan.rpc.serialize.ObjectWriter;
 
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * 工作线程
+ * 单线程工作者
  *
  * @author quanchangnai
  */
@@ -23,19 +24,37 @@ public class Worker implements Executor {
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
-    private static final ThreadLocal<Worker> threadLocal = new ThreadLocal<>();
+    protected static final ThreadLocal<Worker> threadLocal = new ThreadLocal<>();
 
     private static int nextId = 1;
 
     private final int id = nextId++;
 
-    private volatile boolean running;
-
     private final Node node;
+
+    private ExecutorService executor;
 
     private Thread thread;
 
-    private final BlockingQueue<Runnable> taskQueue = new LinkedBlockingQueue<>();
+    //暂存还未启动时提交的需要执行的任务
+    private final Queue<Runnable> tempTasks = new ConcurrentLinkedQueue<>();
+
+    //管理的所有服务，key:服务ID
+    private final Map<Object, Service> services = newMap();
+
+    private final Map<Long, Promise<Object>> mappedPromises = newMap();
+
+    private final SortedSet<Promise<Object>> sortedPromises = new TreeSet<>();
+
+    private final SortedSet<DelayedResult<Object>> delayedResults = new TreeSet<>();
+
+    private final TimerQueue timerQueue = newTimerQueue();
+
+    private int nextCallId = 1;
+
+    private ObjectWriter writer;
+
+    private ObjectReader reader;
 
     private volatile long updateReadyTime;
 
@@ -43,31 +62,19 @@ public class Worker implements Executor {
 
     private long stackTraceTime;
 
-    //管理的所有服务，key:服务ID
-    private final Map<Object, Service> allServices = new HashMap<>();
-
-    private Set<Updatable> updatables = new HashSet<>();
-
-    private int nextCallId = 1;
-
-    private final Map<Long, Promise<Object>> mappedPromises = new HashMap<>();
-
-    private final TreeSet<Promise<Object>> sortedPromises = new TreeSet<>();
-
-    private final TreeSet<DelayedResult<Object>> delayedResults = new TreeSet<>();
-
-    //定时任务队列
-    private final PriorityQueue<TimerTask> timerTaskQueue = new PriorityQueue<>();
-
-    //等待入队的定时任务
-    private final List<TimerTask> timerTaskList = new ArrayList<>();
-
-    private ObjectWriter writer;
-
-    private ObjectReader reader;
-
     protected Worker(Node node) {
         this.node = node;
+        CodedBuffer buffer = new DefaultCodedBuffer();
+        this.writer = node.getConfig().getWriterFactory().apply(buffer);
+        this.reader = node.getConfig().getReaderFactory().apply(buffer);
+    }
+
+    protected <K, V> Map<K, V> newMap() {
+        return new HashMap<>();
+    }
+
+    protected TimerQueue newTimerQueue() {
+        return new TimerQueue();
     }
 
     public static Worker current() {
@@ -82,33 +89,24 @@ public class Worker implements Executor {
         return node;
     }
 
+    public boolean isRunning() {
+        return executor != null && !executor.isShutdown();
+    }
+
     public void addService(Service service) {
-        node.addService(this, service);
+        node.addService(service, this);
     }
 
     protected void doAddService(Service service) {
         service.worker = this;
-
-        allServices.put(service.getId(), service);
-        if (service instanceof Updatable) {
-            updatables.add((Updatable) service);
-        }
-
-        if (running) {
+        services.put(service.getId(), service);
+        if (isRunning()) {
             initService(service);
         }
     }
 
-    private void initService(Service service) {
-        try {
-            service.init();
-        } catch (Exception e) {
-            logger.error("服务[{}]初始化异常", service.getId(), e);
-        }
-    }
-
     public void removeService(Object serviceId) {
-        if (!allServices.containsKey(serviceId)) {
+        if (!services.containsKey(serviceId)) {
             logger.error("服务[{}]不存在", serviceId);
         } else {
             node.removeService(serviceId);
@@ -117,19 +115,23 @@ public class Worker implements Executor {
 
     protected void doRemoveService(Service service) {
         Object serviceId = service.getId();
-        if (running) {
+        if (isRunning()) {
             destroyService(service);
         }
 
         service.worker = null;
+        services.remove(serviceId);
+    }
 
-        allServices.remove(serviceId);
-        if (service instanceof Updatable) {
-            updatables.remove(service);
+    protected void initService(Service service) {
+        try {
+            service.init();
+        } catch (Exception e) {
+            logger.error("服务[{}]初始化异常", service.getId(), e);
         }
     }
 
-    private void destroyService(Service service) {
+    protected void destroyService(Service service) {
         try {
             service.destroy();
         } catch (Exception e) {
@@ -137,49 +139,72 @@ public class Worker implements Executor {
         }
     }
 
-    protected void start() {
-        thread = new Thread(this::run, "worker-" + id);
-        thread.start();
-
-        run(() -> allServices.values().forEach(this::initService));
+    public Service getService(Object serviceId) {
+        return services.get(serviceId);
     }
 
-    protected void stop() {
-        run(() -> {
-            allServices.values().forEach(this::destroyService);
-            running = false;
+    public Collection<Service> getServices() {
+        return Collections.unmodifiableCollection(services.values());
+    }
+
+    protected void start() {
+        executor = newExecutor();
+        tempTasks.forEach(executor::execute);
+        tempTasks.clear();
+        execute(() -> {
+            for (Service service : services.values()) {
+                initService(service);
+            }
         });
     }
 
-    private void run() {
-        threadLocal.set(this);
-        running = true;
-
-        while (running) {
-            try {
-                taskQueue.take().run();
-            } catch (Throwable e) {
-                logger.error("", e);
+    protected void stop() {
+        execute(() -> {
+            for (Service service : services.values()) {
+                destroyService(service);
             }
-        }
-
-        threadLocal.set(null);
-        thread = null;
+            executor.shutdown();
+        });
     }
 
-    public void run(Runnable task) {
-        Objects.requireNonNull(task, "参数[task]不能为空");
-        try {
-            taskQueue.put(task);
-        } catch (InterruptedException e) {
-            logger.error("", e);
-        }
+    protected ExecutorService newExecutor() {
+        return Executors.newFixedThreadPool(1, this::newThread);
     }
+
+    protected Thread newThread(Runnable task) {
+        thread = new Thread(() -> {
+            threadLocal.set(this);
+            task.run();
+        }, "worker-" + id);
+
+        return thread;
+    }
+
+    protected void addSortedPromise(Promise<Object> promise) {
+        sortedPromises.add(promise);
+    }
+
+    protected void removeSortedPromise(Promise<Object> promise) {
+        sortedPromises.remove(promise);
+    }
+
+    protected void addDelayedResult(DelayedResult<Object> delayedResult) {
+        delayedResults.add(delayedResult);
+    }
+
+    protected boolean containsDelayedResult(DelayedResult<Object> delayedResult) {
+        return delayedResults.contains(delayedResult);
+    }
+
 
     @Override
     @SuppressWarnings("NullableProblems")
     public void execute(Runnable task) {
-        addTimerTask(task, 0, 0);
+        if (executor == null) {
+            tempTasks.add(task);
+        } else {
+            executor.execute(task);
+        }
     }
 
     /**
@@ -192,53 +217,21 @@ public class Worker implements Executor {
     /**
      * 创建一个延迟执行的定时器
      *
-     * @param task  定时器任务
-     * @param delay 延迟时间
+     * @see TimerQueue#newTimer(Runnable, long)
      */
     public Timer newTimer(Runnable task, long delay) {
-        if (delay < 0) {
-            throw new IllegalArgumentException("参数[delay]不能小于0");
-        }
-
-        return addTimerTask(task, delay, 0);
+        return timerQueue.newTimer(task, delay);
     }
 
     /**
      * 创建一个周期性执行的定时器
      *
-     * @param task   定时器任务
-     * @param delay  延迟时间
-     * @param period 周期时间
+     * @see TimerQueue#newTimer(Runnable, long)
      */
     public Timer newTimer(Runnable task, long delay, long period) {
-        if (delay < 0) {
-            throw new IllegalArgumentException("参数[delay]不能小于0");
-        }
-
-        int updateInterval = node.getUpdateInterval();
-        if (period < updateInterval) {
-            throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
-        }
-
-        return addTimerTask(task, delay, period);
+        return timerQueue.newTimer(task, delay, period);
     }
 
-    private TimerTask addTimerTask(Runnable task, long delay, long period) {
-        Objects.requireNonNull(task, "参数[task]不能为空");
-
-        TimerTask timerTask = new TimerTask();
-        timerTask.time = getTime() + delay;
-        timerTask.period = period;
-        timerTask.task = task;
-
-        if (thread == Thread.currentThread()) {
-            timerTaskList.add(timerTask);
-        } else {
-            run(() -> timerTaskList.add(timerTask));
-        }
-
-        return timerTask;
-    }
 
     /**
      * 发起刷帧，上一次刷帧还没有结束不执行新的刷帧
@@ -246,18 +239,22 @@ public class Worker implements Executor {
     protected void update() {
         if (updateReadyTime <= 0) {
             updateReadyTime = System.currentTimeMillis();
-            run(this::doUpdate);
+            execute(this::doUpdate);
         }
 
         long currentTime = System.currentTimeMillis();
         long intervalTime = currentTime - updateStartTime;
-        if (updateStartTime > 0 && intervalTime > getNode().getUpdateInterval() * 2L && currentTime - stackTraceTime > 5000) {
+        if (updateStartTime > 0 && intervalTime > getNode().getConfig().getUpdateInterval() * 2L && currentTime - stackTraceTime > 5000) {
             stackTraceTime = currentTime;
-            StringBuilder stackTrace = new StringBuilder();
-            for (StackTraceElement traceElement : thread.getStackTrace()) {
-                stackTrace.append("\tat ").append(traceElement).append("\n");
+            if (thread != null) {
+                StringBuilder stackTrace = new StringBuilder();
+                for (StackTraceElement traceElement : thread.getStackTrace()) {
+                    stackTrace.append("\tat ").append(traceElement).append("\n");
+                }
+                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，线程[{}]可能执行了耗时任务\n{}", id, intervalTime, thread, stackTrace);
+            } else {
+                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，可能执行了耗时任务", id, intervalTime);
             }
-            logger.error("工作线程[{}]帧率过低，距离上次刷帧已经过了{}ms，线程[{}]可能执行了耗时任务\n{}", id, intervalTime, thread, stackTrace);
         }
     }
 
@@ -267,8 +264,10 @@ public class Worker implements Executor {
     private void doUpdate() {
         try {
             updateStartTime = System.currentTimeMillis();
-            updateServices();
-            runTimerTasks();
+            updateTimerQueue();
+            for (Service service : services.values()) {
+                updateService(service);
+            }
             expirePromises();
             expireDelayedResults();
             checkUpdateTime();
@@ -277,38 +276,20 @@ public class Worker implements Executor {
         }
     }
 
-    private void updateServices() {
-        for (Updatable updatable : updatables) {
-            try {
-                updatable.update();
-            } catch (Exception e) {
-                logger.error("服务刷帧出错", e);
-            }
+    protected void updateTimerQueue() {
+        timerQueue.update();
+    }
+
+    protected void updateService(Service service) {
+        try {
+            service.updateTimerQueue();
+            service.update();
+        } catch (Exception e) {
+            logger.error("服务刷帧出错", e);
         }
     }
 
-    private void runTimerTasks() {
-        if (!timerTaskList.isEmpty()) {
-            timerTaskQueue.addAll(timerTaskList);
-            timerTaskList.clear();
-        }
-
-        TimerTask timerTask = timerTaskQueue.peek();
-        while (timerTask != null && (timerTask.isTimeUp() || timerTask.isCancelled())) {
-            timerTaskQueue.poll();
-
-            if (!timerTask.isCancelled()) {
-                timerTask.run();
-                if (!timerTask.isDone()) {
-                    timerTaskList.add(timerTask);
-                }
-            }
-
-            timerTask = timerTaskQueue.peek();
-        }
-    }
-
-    private void expirePromises() {
+    protected void expirePromises() {
         if (sortedPromises.isEmpty()) {
             return;
         }
@@ -321,11 +302,15 @@ public class Worker implements Executor {
             }
             iterator.remove();
             mappedPromises.remove(promise.getCallId());
-            promise.onExpired();
+            expirePromise(promise);
         }
     }
 
-    private void expireDelayedResults() {
+    protected void expirePromise(Promise<Object> promise) {
+        promise.onExpired();
+    }
+
+    protected void expireDelayedResults() {
         if (delayedResults.isEmpty()) {
             return;
         }
@@ -337,19 +322,19 @@ public class Worker implements Executor {
                 return;
             }
             iterator.remove();
-            delayedResult.onExpired();
+            expirePromise(delayedResult);
         }
     }
 
     private void checkUpdateTime() {
         long updateWaitTime = updateStartTime - updateReadyTime;
         if (updateWaitTime > 5) {
-            logger.error("工作线程[{}]的刷帧等待时间({}ms)过长", id, updateWaitTime);
+            logger.error("线程工作者[{}]的刷帧等待时间({}ms)过长", id, updateWaitTime);
         }
 
         long updateCostTime = System.currentTimeMillis() - updateStartTime;
-        if (updateCostTime > node.getUpdateInterval() * 0.5) {
-            logger.warn("工作线程[{}]的刷帧消耗时间({}ms)过长", id, updateCostTime);
+        if (updateCostTime > node.getConfig().getUpdateInterval() * 0.5) {
+            logger.warn("线程工作者[{}]的刷帧消耗时间({}ms)过长", id, updateCostTime);
         }
     }
 
@@ -367,7 +352,7 @@ public class Worker implements Executor {
             return nodeIdResolver.resolve(proxy);
         }
 
-        nodeIdResolver = node.getTargetNodeIdResolver();
+        nodeIdResolver = node.getConfig().getTargetNodeIdResolver();
         if (nodeIdResolver != null) {
             return nodeIdResolver.resolve(proxy);
         }
@@ -375,16 +360,21 @@ public class Worker implements Executor {
         return 0;
     }
 
-    @SuppressWarnings("unchecked")
-    protected <R> Promise<R> sendRequest(Proxy proxy, String signature, int securityModifier, int methodId, Object... params) {
-        long callId = (long) this.id << 32 | nextCallId++;
+    protected int getCallId() {
+        int callId = nextCallId++;
         if (nextCallId < 0) {
             nextCallId = 1;
         }
+        return callId;
+    }
+
+    @SuppressWarnings("unchecked")
+    protected <R> Promise<R> sendRequest(Proxy proxy, String signature, int securityModifier, int methodId, Object... params) {
+        long callId = (long) this.id << 32 | getCallId();
 
         Promise<Object> promise = new Promise<>(callId, signature, this);
         mappedPromises.put(promise.getCallId(), promise);
-        sortedPromises.add(promise);
+        addSortedPromise(promise);
 
         sendRequest(proxy, promise, securityModifier, methodId, params);
 
@@ -422,20 +412,14 @@ public class Worker implements Executor {
 
     private void afterSendRequestError(Promise<Object> promise, Exception e) {
         mappedPromises.remove(promise.getCallId());
-        sortedPromises.remove(promise);
-        run(() -> promise.setException(e));
+        removeSortedPromise(promise);
+        execute(() -> promise.setException(e));
     }
 
-    private Object cloneObject(Object object) {
-        if (writer == null) {
-            CodedBuffer buffer = new DefaultCodedBuffer();
-            writer = node.getWriterFactory().apply(buffer);
-            reader = node.getReaderFactory().apply(buffer);
-        } else {
-            writer.getBuffer().clear();
-        }
-        writer.write(object);
-        return reader.read();
+    protected Object cloneObject(Object object) {
+        this.writer.getBuffer().clear();
+        this.writer.write(object);
+        return this.reader.read();
     }
 
     /**
@@ -484,7 +468,7 @@ public class Worker implements Executor {
         Object result = null;
         String exception = null;
 
-        Service service = allServices.get(serviceId);
+        Service service = services.get(serviceId);
         if (service == null) {
             logger.error("处理RPC请求，服务[{}]不存在，originNodeId:{}，callId:{}", serviceId, originNodeId, callId);
             return;
@@ -519,7 +503,8 @@ public class Worker implements Executor {
 
     @SuppressWarnings("rawtypes")
     protected void handleDelayedResult(DelayedResult delayedResult) {
-        if (!delayedResults.contains(delayedResult)) {
+        //noinspection unchecked
+        if (!containsDelayedResult(delayedResult)) {
             return;
         }
 
@@ -532,7 +517,7 @@ public class Worker implements Executor {
     protected void handleResponse(Response response) {
         long callId = response.getCallId();
         if (!mappedPromises.containsKey(callId)) {
-            logger.error("处理RPC响应，调用[{}]不存在或者已超时", callId);
+            logger.error("处理RPC响应，调用[{}]不存在", callId);
         } else {
             handlePromise(callId, CallException.create(response.getException()), response.getResult());
         }
@@ -547,7 +532,7 @@ public class Worker implements Executor {
             return;
         }
 
-        sortedPromises.remove(promise);
+        removeSortedPromise(promise);
 
         if (exception != null) {
             promise.setException(exception);
@@ -559,67 +544,8 @@ public class Worker implements Executor {
     public <R> DelayedResult<R> newDelayedResult() {
         DelayedResult<R> delayedResult = new DelayedResult<>(this);
         //noinspection unchecked
-        delayedResults.add((DelayedResult<Object>) delayedResult);
+        addDelayedResult((DelayedResult<Object>) delayedResult);
         return delayedResult;
-    }
-
-    /**
-     * 定时任务
-     */
-    private class TimerTask implements Timer, Comparable<TimerTask> {
-
-        /**
-         * 期望执行时间
-         */
-        long time;
-
-        /**
-         * 执行周期，小于1代表该任务不是周期任务
-         */
-        long period;
-
-        Runnable task;
-
-        @Override
-        public void cancel() {
-            time = -2;
-        }
-
-        @Override
-        public boolean isCancelled() {
-            return time == -2;
-        }
-
-        @Override
-        public boolean isDone() {
-            return time == -1;
-        }
-
-        boolean isTimeUp() {
-            return time > 0 && time < Worker.this.getTime();
-        }
-
-        @Override
-        public int compareTo(TimerTask other) {
-            return Long.compare(this.time, other.time);
-        }
-
-        public void run() {
-            //实际执行时间
-            long runTime = Worker.this.getTime();
-            try {
-                task.run();
-            } catch (Exception e) {
-                logger.error("", e);
-            } finally {
-                if (period > 0) {
-                    time = runTime + period;
-                } else {
-                    time = -1;
-                }
-            }
-        }
-
     }
 
 }

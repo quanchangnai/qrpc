@@ -24,11 +24,13 @@ public abstract class Service implements Executor {
     private Object id;
 
     /**
-     * 服务所属的工作线程
+     * 服务所属的线程工作者
      */
     Worker worker;
 
     private Caller caller;
+
+    TimerQueue timerQueue = new TimerQueue();
 
     /**
      * 服务ID，在同一个{@link Node}内必需保证唯一性，非单例服务应该覆盖此方法
@@ -76,7 +78,7 @@ public abstract class Service implements Executor {
     /**
      * 创建一个延迟执行的定时器
      *
-     * @see Worker#newTimer(Runnable, long)
+     * @see TimerQueue#newTimer(Runnable, long)
      */
     public Timer newTimer(Runnable task, long delay) {
         return worker.newTimer(task, delay);
@@ -99,6 +101,16 @@ public abstract class Service implements Executor {
      * 初始化
      */
     protected void init() {
+    }
+
+    final void updateTimerQueue() {
+        timerQueue.update();
+    }
+
+    /**
+     * 刷帧
+     */
+    protected void update() {
     }
 
     /**
