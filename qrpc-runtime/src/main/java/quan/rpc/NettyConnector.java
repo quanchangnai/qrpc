@@ -140,15 +140,17 @@ public class NettyConnector extends Connector {
 
     protected void sendProtocol(ChannelHandlerContext context, Protocol protocol) {
         ByteBuf byteBuf = context.alloc().buffer();
+
         try {
             ObjectWriter objectWriter = node.getConfig().getWriterFactory().apply(new NettyCodedBuffer(byteBuf));
             objectWriter.write(protocol);
-            // TODO 刷新会执行系统调用，需要优化
-            context.writeAndFlush(byteBuf);
-        } catch (Throwable e) {
+        } catch (RuntimeException e) {
             byteBuf.release();
-            throw new RuntimeException("发送协议出错", e);
+            throw e;
         }
+
+        // TODO 刷新会执行系统调用，可能需要优化
+        context.writeAndFlush(byteBuf);
     }
 
     /**
@@ -213,11 +215,11 @@ public class NettyConnector extends Connector {
                             ChannelPipeline p = ch.pipeline();
                             p.addLast(new LengthFieldPrepender(4));
                             p.addLast(new LengthFieldBasedFrameDecoder(100000, 0, 4, 0, 4));
-                            p.addLast(new ChannelInboundHandlerAdapter() {
+                            p.addLast(new SimpleChannelInboundHandler<ByteBuf>() {
 
                                 @Override
-                                public void channelRead(ChannelHandlerContext context, Object msg) {
-                                    CodedBuffer buffer = new NettyCodedBuffer((ByteBuf) msg);
+                                protected void channelRead0(ChannelHandlerContext context, ByteBuf msg) {
+                                    CodedBuffer buffer = new NettyCodedBuffer(msg);
                                     Protocol protocol = connector.node.getConfig().getReaderFactory().apply(buffer).read();
 
                                     if (protocol instanceof Handshake) {
@@ -382,7 +384,7 @@ public class NettyConnector extends Connector {
                 try {
                     connector.sendProtocol(context, protocol);
                 } catch (Exception e) {
-                    throw new RuntimeException(String.format("发送协议到远程节点[%s]出错", id), e.getCause());
+                    throw new RuntimeException(String.format("发送协议到远程节点[%s]出错", id), e);
                 }
             }
         }
