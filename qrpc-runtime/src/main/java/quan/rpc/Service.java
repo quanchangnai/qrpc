@@ -28,11 +28,11 @@ public abstract class Service implements Executor {
     /**
      * 服务所属的线程工作者
      */
-    Worker worker;
+    private Worker worker;
 
     private Caller caller;
 
-    TimerQueue timerQueue = new TimerQueue();
+    private TimerQueue timerQueue;
 
     /**
      * 服务ID，在同一个{@link Node}内必需保证唯一性，非单例服务应该覆盖此方法
@@ -47,6 +47,13 @@ public abstract class Service implements Executor {
             return id;
         }
         throw new IllegalStateException("服务ID不存在");
+    }
+
+    void setWorker(Worker worker) {
+        this.worker = worker;
+        if (worker != null) {
+            timerQueue = new TimerQueue(worker);
+        }
     }
 
     public final Worker getWorker() {

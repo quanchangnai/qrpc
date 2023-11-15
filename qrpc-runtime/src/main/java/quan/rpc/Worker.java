@@ -48,7 +48,7 @@ public class Worker implements Executor {
 
     private final SortedSet<DelayedResult<Object>> delayedResults = new TreeSet<>();
 
-    private final TimerQueue timerQueue = newTimerQueue();
+    private final TimerQueue timerQueue = new TimerQueue(this);
 
     private int nextCallId = 1;
 
@@ -73,10 +73,6 @@ public class Worker implements Executor {
         return new HashMap<>();
     }
 
-    protected TimerQueue newTimerQueue() {
-        return new TimerQueue();
-    }
-
     public static Worker current() {
         return threadLocal.get();
     }
@@ -98,7 +94,7 @@ public class Worker implements Executor {
     }
 
     protected void doAddService(Service service) {
-        service.worker = this;
+        service.setWorker(this);
         services.put(service.getId(), service);
         if (isRunning()) {
             initService(service);
@@ -119,7 +115,7 @@ public class Worker implements Executor {
             destroyService(service);
         }
 
-        service.worker = null;
+        service.setWorker(null);
         services.remove(serviceId);
     }
 

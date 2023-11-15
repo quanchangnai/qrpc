@@ -6,9 +6,11 @@ import quan.message.DefaultCodedBuffer;
 import quan.rpc.serialize.ObjectReader;
 import quan.rpc.serialize.ObjectWriter;
 
-import java.util.Collection;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -36,22 +38,6 @@ public class ThreadPoolWorker extends Worker {
     @Override
     protected <K, V> Map<K, V> newMap() {
         return new ConcurrentHashMap<>();
-    }
-
-    @Override
-    protected TimerQueue newTimerQueue() {
-        return new TimerQueue() {
-
-            @Override
-            protected <T> Collection<T> newTempTimerTasks() {
-                return new ConcurrentLinkedQueue<>();
-            }
-
-            @Override
-            protected void runTimer(Timer timer) {
-                execute(() -> super.runTimer(timer));
-            }
-        };
     }
 
     protected ExecutorService newExecutor() {

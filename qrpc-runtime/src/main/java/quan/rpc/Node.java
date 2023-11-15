@@ -103,6 +103,8 @@ public class Node {
 
 
     private void initWorkers() {
+        Validate.isTrue(config.getWorkerNum() >= 1, "工作者数量不能小于1");
+
         for (int i = 0; i < config.singleThreadWorkerNum; i++) {
             Worker worker = new Worker(this);
             workers.put(worker.getId(), worker);
@@ -337,11 +339,11 @@ public class Node {
         }
 
         /**
-         * 设置调用的超时时间(秒)
+         * 设置调用超时时间(秒)
          */
         public Config setCallTtl(int callTtl) {
             checkReadonly();
-            Validate.isTrue(callTtl > 0, "调用的超时时间不能小于1秒");
+            Validate.isTrue(callTtl >= 1, "调用超时时间不能小于1秒");
             this.callTtl = callTtl;
             return this;
         }
@@ -355,7 +357,7 @@ public class Node {
          */
         public Config setSingleThreadWorkerNum(int singleThreadWorkerNum) {
             checkReadonly();
-            Validate.isTrue(singleThreadWorkerNum >= 1, "单线程工作者数量不能小于1");
+            Validate.isTrue(singleThreadWorkerNum >= 0, "单线程工作者数量不能小于0");
             this.singleThreadWorkerNum = singleThreadWorkerNum;
             return this;
         }
@@ -369,7 +371,7 @@ public class Node {
         }
 
         /**
-         * 工作者数量
+         * 工作者总数量
          */
         public int getWorkerNum() {
             return singleThreadWorkerNum + threadPoolWorkers.size();

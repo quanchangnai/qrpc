@@ -1,5 +1,6 @@
 package quan.rpc.test;
 
+import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quan.rpc.Endpoint;
@@ -40,6 +41,13 @@ public class TestService1 extends Service {
         newTimer(() -> {
             System.err.println("cron timer execute,time：" + getTime() + ",thread:" + Thread.currentThread());
         }, "0/10 * * * * ? ");
+
+        for (int i = 0; i < 1000; i++) {
+            int a = i;
+            newTimer(() -> {
+                lastTime = RandomUtils.nextInt() + a;
+            }, 100, 100);
+        }
 
     }
 

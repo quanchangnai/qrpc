@@ -21,13 +21,17 @@ public class TimerQueue {
 
     private final PriorityQueue<TimerTask> timerTaskQueue = new PriorityQueue<>();
 
-    private final Collection<TimerTask> tempTimerTasks = newTempTimerTasks();
+    private final List<TimerTask> tempTimerTasks = new ArrayList<>();
 
     private final CronParser cronParser = new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
+    private final Worker worker;
 
-    protected <T> Collection<T> newTempTimerTasks() {
-        return new ArrayList<>();
+    private final boolean concurrent;
+
+    public TimerQueue(Worker worker) {
+        this.worker = Objects.requireNonNull(worker);
+        this.concurrent = worker instanceof ThreadPoolWorker;
     }
 
     /**
@@ -56,7 +60,7 @@ public class TimerQueue {
             throw new IllegalArgumentException("参数[delay]不能小于0");
         }
 
-        int updateInterval = Worker.current().getNode().getConfig().getUpdateInterval();
+        int updateInterval = worker.getNode().getConfig().getUpdateInterval();
         if (period < updateInterval) {
             throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
         }
@@ -64,7 +68,17 @@ public class TimerQueue {
         return addTimerTask(task, delay, period, null);
     }
 
-    private TimerTask addTimerTask(Runnable task, long delay, long period, String cron) {
+    /**
+     * 创建一个基于cron表达式的定时器
+     *
+     * @param task 定时器任务
+     * @param cron cron表达式
+     */
+    public Timer newTimer(Runnable task, String cron) {
+        return addTimerTask(task, 0, 0, cron);
+    }
+
+    private Timer addTimerTask(Runnable task, long delay, long period, String cron) {
         Objects.requireNonNull(task, "参数[task]不能为空");
 
         TimerTask timerTask = new TimerTask();
@@ -79,25 +93,55 @@ public class TimerQueue {
 
         timerTask.calcTime();
 
-        tempTimerTasks.add(timerTask);
+        addTimerTask(timerTask);
 
         return timerTask;
     }
 
-    /**
-     * 创建一个基于cron表达式的定时器
-     *
-     * @param task 定时器任务
-     * @param cron cron表达式
-     */
-    public Timer newTimer(Runnable task, String cron) {
-        return addTimerTask(task, 0, 0, cron);
+    private void addTimerTask(TimerTask timerTask) {
+        if (concurrent) {
+            synchronized (tempTimerTasks) {
+                tempTimerTasks.add(timerTask);
+            }
+        } else {
+            tempTimerTasks.add(timerTask);
+        }
+
+    }
+
+    private void moveTimerTasks() {
+        if (concurrent) {
+            synchronized (tempTimerTasks) {
+                timerTaskQueue.addAll(tempTimerTasks);
+                tempTimerTasks.clear();
+            }
+        } else {
+            timerTaskQueue.addAll(tempTimerTasks);
+            tempTimerTasks.clear();
+        }
+    }
+
+    private void runTimerTask(TimerTask timerTask) {
+        if (concurrent) {
+            worker.execute(timerTask::run);
+        } else {
+            timerTask.run();
+        }
     }
 
     public void update() {
+        if (concurrent) {
+            synchronized (timerTaskQueue) {
+                doUpdate();
+            }
+        } else {
+            doUpdate();
+        }
+    }
+
+    private void doUpdate() {
         try {
-            timerTaskQueue.addAll(tempTimerTasks);
-            tempTimerTasks.clear();
+            moveTimerTasks();
 
             if (timerTaskQueue.isEmpty()) {
                 return;
@@ -109,9 +153,9 @@ public class TimerQueue {
 
                 if (!timerTask.isCancelled()) {
                     timerTask.calcTime();
-                    runTimer(timerTask);
+                    runTimerTask(timerTask);
                     if (!timerTask.isDone() && !timerTask.isCancelled()) {
-                        tempTimerTasks.add(timerTask);
+                        addTimerTask(timerTask);
                     }
                 }
 
@@ -120,10 +164,6 @@ public class TimerQueue {
         } catch (Exception e) {
             logger.error("", e);
         }
-    }
-
-    protected void runTimer(Timer timer) {
-        ((TimerTask) timer).run();
     }
 
 
@@ -167,7 +207,7 @@ public class TimerQueue {
         }
 
         boolean isTimeUp() {
-            return time > 0 && time < Worker.current().getTime();
+            return time > 0 && time < worker.getTime();
         }
 
         @Override
@@ -177,11 +217,11 @@ public class TimerQueue {
 
         void calcTime() {
             if (time == 0 && delay >= 0) {
-                time = Worker.current().getTime() + delay;
+                time = worker.getTime() + delay;
             } else if (period > 0) {
-                time = Worker.current().getTime() + period;
+                time = worker.getTime() + period;
             } else if (cronTime != null) {
-                Instant instant = Instant.ofEpochMilli(Worker.current().getTime());
+                Instant instant = Instant.ofEpochMilli(worker.getTime());
                 ZonedDateTime zonedDateTime = ZonedDateTime.ofInstant(instant, ZoneId.systemDefault());
                 Optional<ZonedDateTime> nextTime = cronTime.nextExecution(zonedDateTime);
                 time = nextTime.map(dateTime -> dateTime.toInstant().toEpochMilli()).orElse(-1L);
