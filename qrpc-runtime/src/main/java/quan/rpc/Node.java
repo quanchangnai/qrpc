@@ -12,12 +12,10 @@ import quan.rpc.serialize.ObjectReader;
 import quan.rpc.serialize.ObjectWriter;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * RPC节点
@@ -46,10 +44,6 @@ public class Node {
 
     private volatile boolean running;
 
-    //刷帧开始时间
-    private long updateTime;
-
-
     /**
      * 构造RPC节点对象
      *
@@ -61,6 +55,7 @@ public class Node {
         Validate.isTrue(id > 0, "节点ID必须是正整数");
         this.id = id;
         this.config = config == null ? new Config() : config;
+        this.config.validate();
         this.config.readonly = true;
 
         this.initWorkers();
@@ -103,15 +98,13 @@ public class Node {
 
 
     private void initWorkers() {
-        Validate.isTrue(config.getWorkerNum() >= 1, "工作者数量不能小于1");
-
         for (int i = 0; i < config.singleThreadWorkerNum; i++) {
             Worker worker = new Worker(this);
             workers.put(worker.getId(), worker);
         }
 
-        for (Integer nThreads : config.threadPoolWorkers) {
-            Worker worker = new ThreadPoolWorker(this, nThreads);
+        if (config.hasThreadPoolWorker()) {
+            Worker worker = new ThreadPoolWorker(this);
             workers.put(worker.getId(), worker);
         }
 
@@ -132,10 +125,14 @@ public class Node {
     public void stop() {
         running = false;
         executor.shutdown();
-        executor = null;
-        connectors.forEach(Connector::stop);
+        for (Connector connector : connectors) {
+            try {
+                connector.stop();
+            } catch (Exception e) {
+                logger.error("{}关闭出错", connector, e);
+            }
+        }
         workers.values().forEach(Worker::stop);
-        workers = new HashMap<>();
     }
 
     public boolean isRunning() {
@@ -147,15 +144,6 @@ public class Node {
             return;
         }
 
-        long currentTime = System.currentTimeMillis();
-        long actualInterval = currentTime - updateTime;
-
-        if (updateTime > 0 && actualInterval > config.updateInterval * 2L) {
-            logger.error("节点({})实际刷帧间隔时间({})过长", id, actualInterval);
-        }
-
-        updateTime = currentTime;
-
         try {
             workers.values().forEach(Worker::update);
         } catch (Exception e) {
@@ -164,20 +152,17 @@ public class Node {
 
     }
 
-    private Worker nextWorker() {
-        return (Worker) workers.values().toArray()[RandomUtils.nextInt(0, workers.size())];
-    }
-
     public long getTime() {
         return System.currentTimeMillis() + timeOffset;
     }
 
     public void addService(Service service) {
-        addService(service, nextWorker());
+        Worker worker = (Worker) workers.values().toArray()[RandomUtils.nextInt(0, workers.size())];
+        addService(service, worker);
     }
 
     public void addService(Service service, int workerId) {
-        Objects.requireNonNull(service);
+        Objects.requireNonNull(service, "服务不能为空");
         Object serviceId = Objects.requireNonNull(service.getId(), "服务ID不能为空");
 
         Worker worker = workers.get(workerId);
@@ -203,8 +188,8 @@ public class Node {
         addService(service, worker.getId());
     }
 
-    public void addService(Service service, Predicate<Worker> workerSelector) {
-        Worker worker = workers.values().stream().filter(workerSelector).findAny().orElse(null);
+    public void addService(Service service, Predicate<Worker> predicate) {
+        Worker worker = workers.values().stream().filter(predicate).findAny().orElse(null);
         if (worker != null) {
             addService(service, worker);
         } else {
@@ -300,11 +285,32 @@ public class Node {
 
         private int updateInterval = 50;
 
-        private int callTtl = 10;
+        private int maxUpdateWaitTime = 5;
+
+        private int maxUpdateCostTime = 25;
+
+        private int maxUpdateInterval = 100;
+
+        private int callTtl = 10000;
 
         private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
 
-        private List<Integer> threadPoolWorkers = new ArrayList<>();
+        /**
+         * 线程池工作者核心池大小
+         */
+        private int threadPoolWorkerCorePoolSize;
+
+        /**
+         * 线程池工作者最大池大小
+         */
+        private int threadPoolWorkerMaxPoolSize;
+
+        /**
+         * 线程池工作者池大小系数
+         */
+        private int threadPoolWorkerPoolSizeFactor;
+
+        private Supplier<ThreadPoolExecutor> threadPoolFactory;
 
         private Function<CodedBuffer, ObjectReader> readerFactory = ObjectReader::new;
 
@@ -319,18 +325,64 @@ public class Node {
             }
         }
 
+        public void validate() {
+            Validate.isTrue(getWorkerNum() >= 1, "工作者数量不能小于1");
+            Validate.isTrue(maxUpdateWaitTime > 0 && maxUpdateWaitTime < updateInterval, "最大刷帧等待时间[%d]错误", maxUpdateWaitTime);
+            Validate.isTrue(maxUpdateCostTime > 0 && maxUpdateCostTime < updateInterval, "最大刷帧消耗时间[%d]错误", maxUpdateCostTime);
+            Validate.isTrue(maxUpdateInterval > updateInterval, "最大刷帧间隔时间[%d]错误", maxUpdateInterval);
+        }
+
 
         public int getUpdateInterval() {
             return updateInterval;
         }
 
         /**
-         * 设置刷帧的间隔时间(ms)
+         * 设置刷帧的间隔时间(毫秒)
          */
         public Config setUpdateInterval(int updateInterval) {
             checkReadonly();
             Validate.isTrue(updateInterval >= 10, "刷帧的间隔时间不能小于10毫秒");
             this.updateInterval = updateInterval;
+            return this;
+        }
+
+        public int getMaxUpdateWaitTime() {
+            return maxUpdateWaitTime;
+        }
+
+        /**
+         * 设置{@link Worker}的最大刷帧等待时间(毫秒)，{@link #maxUpdateWaitTime} > 0 && {@link #maxUpdateWaitTime} < {@link #updateInterval}
+         */
+        public Config setMaxUpdateWaitTime(int maxUpdateWaitTime) {
+            checkReadonly();
+            this.maxUpdateWaitTime = maxUpdateWaitTime;
+            return this;
+        }
+
+        public int getMaxUpdateCostTime() {
+            return maxUpdateCostTime;
+        }
+
+        /**
+         * 设置{@link Worker}最大刷帧消耗时间(毫秒)，{@link #maxUpdateCostTime} > 0 && {@link #maxUpdateCostTime} < {@link #updateInterval}
+         */
+        public Config setMaxUpdateCostTime(int maxUpdateCostTime) {
+            checkReadonly();
+            this.maxUpdateCostTime = maxUpdateCostTime;
+            return this;
+        }
+
+        /**
+         * 设置{@link Worker}最大刷帧间隔时间(毫秒)，{@link #maxUpdateInterval} > {@link #updateInterval}
+         */
+        public int getMaxUpdateInterval() {
+            return maxUpdateInterval;
+        }
+
+        public Config setMaxUpdateInterval(int maxUpdateInterval) {
+            checkReadonly();
+            this.maxUpdateInterval = maxUpdateInterval;
             return this;
         }
 
@@ -344,7 +396,7 @@ public class Node {
         public Config setCallTtl(int callTtl) {
             checkReadonly();
             Validate.isTrue(callTtl >= 1, "调用超时时间不能小于1秒");
-            this.callTtl = callTtl;
+            this.callTtl = callTtl * 1000;
             return this;
         }
 
@@ -363,18 +415,63 @@ public class Node {
         }
 
         /**
-         * 添加线程池工作者
+         * 设置线程池工作者参数
+         *
+         * @param corePoolSize   核心池大小
+         * @param maxPoolSize    最大池大小
+         * @param poolSizeFactor 池大小系数，当[已提交还未执行完的任务数量>池大小*池大小系数]时将创建新线程
          */
-        public void addThreadPoolWorker(int nThreads) {
-            Validate.isTrue(nThreads >= 2, "线程池工作者的线程数量不能小于2");
-            threadPoolWorkers.add(nThreads);
+        public Config setThreadPoolWorkerParam(int corePoolSize, int maxPoolSize, int poolSizeFactor) {
+            checkReadonly();
+            Validate.isTrue(corePoolSize >= 2 && maxPoolSize >= corePoolSize && poolSizeFactor > 0, "线程池工作者参数错误");
+            this.threadPoolWorkerCorePoolSize = corePoolSize;
+            this.threadPoolWorkerMaxPoolSize = maxPoolSize;
+            this.threadPoolWorkerPoolSizeFactor = poolSizeFactor;
+            return this;
+        }
+
+        public Config setThreadPoolWorkerParam(int corePoolSize, int maxPoolSize) {
+            return setThreadPoolWorkerParam(corePoolSize, maxPoolSize, 5);
+        }
+
+        public int getThreadPoolWorkerCorePoolSize() {
+            return threadPoolWorkerCorePoolSize;
+        }
+
+        public int getThreadPoolWorkerMaxPoolSize() {
+            return threadPoolWorkerMaxPoolSize;
+        }
+
+        public int getThreadPoolWorkerPoolSizeFactor() {
+            return threadPoolWorkerPoolSizeFactor;
+        }
+
+        /**
+         * 设置线程池工作者的线程池工厂，将会优先使用外部提供的工厂创建线程池
+         */
+        public Supplier<ThreadPoolExecutor> getThreadPoolFactory() {
+            return threadPoolFactory;
+        }
+
+        public void setThreadPoolFactory(Supplier<ThreadPoolExecutor> threadPoolFactory) {
+            checkReadonly();
+            this.threadPoolFactory = Objects.requireNonNull(threadPoolFactory);
+        }
+
+        public boolean hasThreadPoolWorker() {
+            return threadPoolWorkerCorePoolSize > 0 || threadPoolFactory != null;
         }
 
         /**
          * 工作者总数量
          */
         public int getWorkerNum() {
-            return singleThreadWorkerNum + threadPoolWorkers.size();
+            if (hasThreadPoolWorker()) {
+                return singleThreadWorkerNum + 1;
+            } else {
+                return singleThreadWorkerNum;
+            }
+
         }
 
         public Function<CodedBuffer, ObjectReader> getReaderFactory() {

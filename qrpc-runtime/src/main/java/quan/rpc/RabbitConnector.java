@@ -137,7 +137,7 @@ public class RabbitConnector extends Connector {
 
             String queueName = queueName(node.getId());
             Map<String, Object> queueArgs = new HashMap<>();
-            queueArgs.put("x-message-ttl", node.getConfig().getCallTtl() * 1000);//设置队列里消息的过期时间
+            queueArgs.put("x-message-ttl", node.getConfig().getCallTtl());//设置队列里消息的过期时间
             channel.queueDeclare(queueName, false, true, true, queueArgs);
             channel.queueBind(queueName, exchangeName, "");
 
@@ -189,4 +189,9 @@ public class RabbitConnector extends Connector {
         });
     }
 
+
+    @Override
+    public String toString() {
+        return getClass().getName() + "{ip=" + connectionFactory.getHost() + ",port" + connectionFactory.getPort() + "}";
+    }
 }

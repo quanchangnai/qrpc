@@ -60,7 +60,11 @@ public class Worker implements Executor {
 
     private volatile long updateStartTime;
 
-    private long stackTraceTime;
+    private long printUpdateIntervalTime;
+
+    private long printUpdateWaitTime;
+
+    private long printUpdateCostTime;
 
     protected Worker(Node node) {
         this.node = node;
@@ -253,18 +257,27 @@ public class Worker implements Executor {
             execute(this::doUpdate);
         }
 
+        checkUpdateIntervalTime();
+    }
+
+    protected void checkUpdateIntervalTime() {
+        if (updateStartTime <= 0) {
+            return;
+        }
+
         long currentTime = System.currentTimeMillis();
-        long intervalTime = currentTime - updateStartTime;
-        if (updateStartTime > 0 && intervalTime > getNode().getConfig().getUpdateInterval() * 2L && currentTime - stackTraceTime > 5000) {
-            stackTraceTime = currentTime;
+        long updateIntervalTime = currentTime - updateStartTime;
+
+        if (updateIntervalTime > getNode().getConfig().getMaxUpdateInterval() && currentTime - printUpdateIntervalTime > 5000) {
+            printUpdateIntervalTime = currentTime;
             if (thread != null) {
-                StringBuilder stackTrace = new StringBuilder();
+                StringBuilder sb = new StringBuilder();
                 for (StackTraceElement traceElement : thread.getStackTrace()) {
-                    stackTrace.append("\tat ").append(traceElement).append("\n");
+                    sb.append("\tat ").append(traceElement).append("\n");
                 }
-                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，线程[{}]可能执行了耗时任务\n{}", id, intervalTime, thread, stackTrace);
+                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，线程[{}]可能执行了耗时任务\n{}", id, updateIntervalTime, thread, sb);
             } else {
-                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，可能执行了耗时任务", id, intervalTime);
+                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，可能执行了耗时任务", id, updateIntervalTime);
             }
         }
     }
@@ -296,7 +309,7 @@ public class Worker implements Executor {
             service.updateTimerQueue();
             service.update();
         } catch (Exception e) {
-            logger.error("服务刷帧出错", e);
+            logger.error("服务[{}]刷帧出错", service.getId(), e);
         }
     }
 
@@ -338,14 +351,18 @@ public class Worker implements Executor {
     }
 
     private void checkUpdateTime() {
+        long currentTime = System.currentTimeMillis();
+
         long updateWaitTime = updateStartTime - updateReadyTime;
-        if (updateWaitTime > 5) {
+        if (updateWaitTime > node.getConfig().getMaxUpdateWaitTime() && currentTime - printUpdateWaitTime > 5000) {
+            printUpdateWaitTime = currentTime;
             logger.error("线程工作者[{}]的刷帧等待时间({}ms)过长", id, updateWaitTime);
         }
 
         long updateCostTime = System.currentTimeMillis() - updateStartTime;
-        if (updateCostTime > node.getConfig().getUpdateInterval() * 0.5) {
-            logger.warn("线程工作者[{}]的刷帧消耗时间({}ms)过长", id, updateCostTime);
+        if (updateCostTime > node.getConfig().getMaxUpdateCostTime() && currentTime - printUpdateCostTime > 5000) {
+            printUpdateCostTime = currentTime;
+            logger.error("线程工作者[{}]的刷帧消耗时间({}ms)过长", id, updateCostTime);
         }
     }
 

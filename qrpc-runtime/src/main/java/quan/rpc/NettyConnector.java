@@ -175,6 +175,11 @@ public class NettyConnector extends Connector {
         pingPong.setTime(System.currentTimeMillis());
     }
 
+    @Override
+    public String toString() {
+        return getClass().getName() + "{ip=" + receiver.ip + ",port" + receiver.port + "}";
+    }
+
     /**
      * 用于接收远程节点的数据
      */

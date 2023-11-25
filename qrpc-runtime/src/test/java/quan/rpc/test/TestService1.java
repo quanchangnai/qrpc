@@ -42,9 +42,15 @@ public class TestService1 extends Service {
             System.err.println("cron timer execute,time：" + getTime() + ",thread:" + Thread.currentThread());
         }, "0/10 * * * * ? ");
 
-        for (int i = 0; i < 1000; i++) {
+        for (int i = 0; i < 100; i++) {
             int a = i;
             newTimer(() -> {
+                for (int j = 0; j < 1; j++) {
+                    try {
+                        Thread.sleep(1);
+                    } catch (InterruptedException e) {
+                }
+                }
                 lastTime = RandomUtils.nextInt() + a;
             }, 100, 100);
         }
