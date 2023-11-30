@@ -1,9 +1,6 @@
 package quan.rpc;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class ServiceClass extends ServiceElement {
 
@@ -11,18 +8,30 @@ public class ServiceClass extends ServiceElement {
 
     private String packageName;
 
-    //单例服务的ID
-    private String serviceId;
+    //是不是抽象类
+    private boolean abs;
 
     private final List<ServiceMethod> methods = new ArrayList<>();
 
     //同名方法的数量
-    private final Map<String, Integer> methodNameNums = new HashMap<>();
+    private final Map<String, Integer> methodNameCounts = new HashMap<>();
 
-    //简单类名：全类名(可以省略导入的类以-开头)
-    private final Map<String, String> imports = new HashMap<>();
+    //服务ID的类型
+    private String idType;
 
-    private boolean customPath;
+    /**
+     * 服务代理支持的构造方法，参考{@link Proxy}的6个构造方法
+     */
+    private Set<Integer> proxyConstructors = new HashSet<>();
+
+    //父类
+    private String superName;
+
+    //父类的泛型的类型参数
+    protected String superTypeParameters;
+
+    //自定义代理代码的生成路径
+    private boolean customProxyPath;
 
     public ServiceClass(String fullName) {
         this.fullName = fullName;
@@ -44,161 +53,133 @@ public class ServiceClass extends ServiceElement {
         return packageName;
     }
 
-    public String getServiceId() {
-        return serviceId;
+    public boolean isAbs() {
+        return abs;
     }
 
-    public void setServiceId(String serviceId) {
-        this.serviceId = serviceId;
+    public void setAbs(boolean abs) {
+        this.abs = abs;
     }
 
     public List<ServiceMethod> getMethods() {
         return methods;
     }
 
-    public Map<String, Integer> getMethodNameNums() {
-        if (methodNameNums.isEmpty()) {
+    public Map<String, Integer> getMethodNameCounts() {
+        if (methodNameCounts.isEmpty()) {
             for (ServiceMethod method : methods) {
-                methodNameNums.merge(method.name, 1, Integer::sum);
+                methodNameCounts.merge(method.name, 1, Integer::sum);
             }
         }
-        return methodNameNums;
+        return methodNameCounts;
+    }
+
+    public String getSuperName() {
+        return superName;
+    }
+
+    public void setSuperName(String superName) {
+        this.superName = superName;
+    }
+
+    public String getSuperTypeParameters() {
+        return superTypeParameters;
+    }
+
+    public void setSuperTypeParameters(String superTypeParameters) {
+        this.superTypeParameters = superTypeParameters;
+    }
+
+    public String getSuperProxyName() {
+        String superProxyName;
+
+        if (superName.equals(Service.class.getName())) {
+            superProxyName = Proxy.class.getSimpleName();
+        } else {
+            superProxyName = superName + "Proxy";
+            if (superTypeParameters != null) {
+                superProxyName += superTypeParameters;
+            }
+        }
+
+        return simplifyClassName(superProxyName);
+    }
+
+    public String getSuperCallerName() {
+        String superCallerName;
+        if (superName.equals(Service.class.getName())) {
+            superCallerName = Caller.class.getSimpleName();
+        } else {
+            superCallerName = superName + "Caller";
+        }
+
+        return simplifyClassName(superCallerName);
+    }
+
+    public String getIdType() {
+        return idType;
+    }
+
+    public void setIdType(String idType) {
+        this.idType = idType;
+    }
+
+    public boolean isCustomProxyPath() {
+        return customProxyPath;
+    }
+
+    public void setCustomProxyPath(boolean customProxyPath) {
+        this.customProxyPath = customProxyPath;
+    }
+
+
+    public Set<Integer> getProxyConstructors() {
+        return proxyConstructors;
+    }
+
+    public void setProxyConstructors(Set<Integer> proxyConstructors) {
+        this.proxyConstructors = proxyConstructors;
+    }
+
+    public boolean hasConstructor(int c) {
+        return !abs && (proxyConstructors.isEmpty() || proxyConstructors.contains(c));
+    }
+
+    /**
+     * 构造对象时使用的默认泛型参数列表字符串，例如:<?,?>
+     */
+    public String getTypeParametersStr2() {
+        StringBuilder sb = new StringBuilder();
+
+        if (!typeParameterBounds.isEmpty()) {
+            sb.append("<");
+            for (int i = 0; i < typeParameterBounds.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append("?");
+            }
+            sb.append(">");
+        }
+
+        return sb.toString();
     }
 
     @Override
-    public void setServiceClass(ServiceClass serviceClass) {
-        throw new UnsupportedOperationException();
-    }
-
-    public Map<String, String> getImports() {
-        Map<String, String> imports = new HashMap<>();
-        for (String importKey : this.imports.keySet()) {
-            String importValue = this.imports.get(importKey);
-            if (!importValue.startsWith("-")) {
-                imports.put(importKey, importValue);
-            }
-        }
-        return imports;
-    }
-
-    public boolean isCustomPath() {
-        return customPath;
-    }
-
-    public void setCustomPath(boolean customPath) {
-        this.customPath = customPath;
-    }
-
-    /**
-     * 优化导入
-     *
-     * @param genericFullName 全类名，可能会带泛型，也可能会是数组
-     * @return 实际使用的类名，简单类名冲突的使用全类名，不冲突的使用简单类名
-     */
-    public String optimizeImport(String genericFullName) {
-        String fullName = genericFullName;
-        String typeParamFullNames = null;
-        int index = genericFullName.indexOf("<");
-        if (index > 0) {
-            fullName = genericFullName.substring(0, index);
-            typeParamFullNames = genericFullName.substring(index + 1, genericFullName.length() - 1);
-        }
-
-        String usedName = optimizeUsedName(fullName);
-        StringBuilder usedGenericName = new StringBuilder();
-        usedGenericName.append(usedName);
-
-        if (typeParamFullNames != null) {
-            usedGenericName.append("<");
-            int i = 0;
-            for (String typeParamFullType : typeParamFullNames.split(",")) {
-                if (i++ > 0) {
-                    usedGenericName.append(", ");
-                }
-                index = typeParamFullType.lastIndexOf(" ");
-                if (index > 0) {
-                    usedGenericName.append(typeParamFullType, 0, index + 1);
-                    typeParamFullType = typeParamFullType.substring(index + 1);
-                }
-                usedGenericName.append(optimizeImport(typeParamFullType));
-            }
-            usedGenericName.append(">");
-        }
-
-        return usedGenericName.toString();
-    }
-
-    /**
-     * 优化导入
-     *
-     * @param fullName 全类名，不带泛型，但可能会是数组
-     */
-    private String optimizeUsedName(String fullName) {
-        int index = fullName.lastIndexOf(".");
-        if (index < 0) {
-            return fullName;
-        }
-
-        String enclosingName = fullName.substring(0, index);
-        String simpleName = fullName.substring(index + 1);
-        String realFullName = fullName;
-        String realSimpleName = simpleName;
-
-        if (fullName.contains("[]")) {
-            //去掉数组符号后的实际类型名
-            realFullName = fullName.substring(0, fullName.length() - 2);
-            realSimpleName = fullName.substring(index + 1, fullName.length() - 2);
-        }
-
-        String importValue = imports.get(realSimpleName);
-        if (importValue != null) {
-            if (importValue.equals("-" + realFullName) || importValue.equals(realFullName)) {
-                return simpleName;
-            } else {
-                return fullName;
-            }
-        }
-
-        if (enclosingName.equals("java.lang") || enclosingName.equals(this.packageName)) {
-            imports.put(realSimpleName, "-" + realFullName);
-        } else {
-            imports.put(realSimpleName, realFullName);
-        }
-
-        return simpleName;
-    }
-
-    public void optimizeImport4Proxy() {
-        imports.clear();
-        imports.put("Promise", "quan.rpc.Promise");
-        imports.put("Worker", "quan.rpc.Worker");
-        imports.put("Proxy", "quan.rpc.Proxy");
-        imports.put("NodeIdResolver", "quan.rpc.NodeIdResolver");
-        imports.put("Object", "-java.lang.Object");
-        imports.put(name, "-" + fullName);
-        imports.put(name + "Proxy", "-" + fullName + "Proxy");
-
-        super.optimizeImport4Proxy();
-        methods.forEach(ServiceMethod::optimizeImport4Proxy);
-    }
-
-    public void optimizeImport4Caller() {
-        imports.clear();
-        imports.put("Caller", "quan.rpc.Caller");
-        imports.put("Service", "quan.rpc.Service");
-        imports.put("Object", "-java.lang.Object");
-        imports.put(name, "-" + fullName);
-        imports.put(name + "Caller", "-" + fullName + "Caller");
-
-        methods.forEach(ServiceMethod::optimizeImport4Caller);
+    public void prepare() {
+        super.prepare();
+        idType = simplifyClassName(idType);
+        superTypeParameters = simplifyClassName(superTypeParameters);
+        methods.forEach(ServiceMethod::prepare);
     }
 
     @Override
     public String toString() {
         return "ServiceClass{" +
                 "name='" + name + '\'' +
+                "idType='" + idType + '\'' +
                 ", packageName='" + packageName + '\'' +
-                ", typeParameters=" + originalTypeParameters +
+                ", typeParameters=" + typeParametersStr +
                 ", comment='" + comment + '\'' +
                 ", methods=" + methods +
                 '}';

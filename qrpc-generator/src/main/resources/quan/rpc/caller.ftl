@@ -2,13 +2,14 @@
 package ${packageName};
 
  </#if>
-<#list imports?keys as importKey>
-import ${imports[importKey]};
-</#list>
+import java.util.*;
+import quan.rpc.*;
+
 
 /**
  * @see ${name}
  */
+@SuppressWarnings({"rawtypes", "unchecked"})
 public final class ${name}Caller extends Caller {
 
     public static final ${name}Caller instance = new ${name}Caller();
@@ -21,18 +22,19 @@ public final class ${name}Caller extends Caller {
         ${name} ${name?uncap_first} = (${name}) service;
         switch (methodId) {
         <#list methods as method>
-            case ${method?index+1}:
+            case ${method.id}:
             <#if method.returnVoid>
                 ${name?uncap_first}.${method.name}(<#rt>
             <#else>
                 return ${name?uncap_first}.${method.name}(<#rt>
             </#if>
-            <#list method.optimizedParameters?keys as paramName>
-                <#assign paramType=method.optimizedParameters[paramName]/>
-                <#if method.isNeedCastArray(paramName)>
-                    toArray(params[${paramName?index}], ${paramType?substring(0,paramType?length-2)}.class)<#t>
+            <#list method.parameters?keys as paramName>
+                <#if method.isObjectArray(paramName)>
+                    toArray(params[${paramName?index}], ${method.getArrayComponentType(paramName)}.class)<#t>
+                <#elseif method.isGenericTypeVar(paramName)>
+                params[${paramName?index}]<#t>
                 <#else>
-                (${paramType}) params[${paramName?index}]<#t>
+                (${method.getAssignedType(paramName)}) params[${paramName?index}]<#t>
                 </#if>
                 <#if paramName?has_next>, </#if><#t>
             </#list>
@@ -42,7 +44,7 @@ public final class ${name}Caller extends Caller {
             </#if>
         </#list>
             default:
-                throw new IllegalArgumentException(String.format("${name}不存在方法:%d", methodId));
+                return ${superCallerName}.instance.call(service, methodId, params);
         }
     }
 

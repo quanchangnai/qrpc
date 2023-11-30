@@ -3,25 +3,18 @@ package quan.rpc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
 import java.util.concurrent.Executor;
 
 /**
  * 支持远程方法调用的服务，被{@link Endpoint}标记的方法可以被远程调用
  *
+ * @param <I> 服务ID的泛型
  * @author quanchangnai
  */
-public abstract class Service implements Executor {
+@ProxyConstructors({1, 2, 3, 4})
+public abstract class Service<I> implements Executor {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
-
-    /**
-     * 单例服务ID
-     */
-    private Object id;
 
     volatile int state = 0;
 
@@ -35,19 +28,9 @@ public abstract class Service implements Executor {
     private TimerQueue timerQueue;
 
     /**
-     * 服务ID，在同一个{@link Node}内必需保证唯一性，非单例服务应该覆盖此方法
+     * 服务ID，一般为数字或者字符串，在同一个{@link Node}内必需保证唯一性
      */
-    public Object getId() {
-        if (id != null) {
-            return id;
-        }
-        Singleton singleton = getClass().getAnnotation(Singleton.class);
-        if (singleton != null) {
-            id = singleton.id();
-            return id;
-        }
-        throw new IllegalStateException("服务ID不存在");
-    }
+    public abstract I getId();
 
     void setWorker(Worker worker) {
         this.worker = worker;
@@ -136,22 +119,6 @@ public abstract class Service implements Executor {
      * 销毁
      */
     protected void destroy() {
-    }
-
-    /**
-     * 单例服务标志
-     */
-    @Target(ElementType.TYPE)
-    @Retention(RetentionPolicy.RUNTIME)
-    public @interface Singleton {
-
-        /**
-         * 服务ID
-         *
-         * @see Service#getId()
-         */
-        String id();
-
     }
 
 }

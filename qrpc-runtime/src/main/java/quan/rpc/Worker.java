@@ -40,7 +40,7 @@ public class Worker implements Executor {
     private final Queue<Runnable> tempTasks = new ConcurrentLinkedQueue<>();
 
     //管理的所有服务，key:服务ID
-    private final Map<Object, Service> services = newMap();
+    private final Map<Object, Service<?>> services = newMap();
 
     private final Map<Long, Promise<Object>> mappedPromises = newMap();
 
@@ -93,11 +93,11 @@ public class Worker implements Executor {
         return executor != null && !executor.isShutdown();
     }
 
-    public void addService(Service service) {
+    public void addService(Service<?> service) {
         node.addService(service, this);
     }
 
-    protected void doAddService(Service service) {
+    protected void doAddService(Service<?> service) {
         service.setWorker(this);
         services.put(service.getId(), service);
         if (isRunning()) {
@@ -113,7 +113,7 @@ public class Worker implements Executor {
         }
     }
 
-    protected void doRemoveService(Service service) {
+    protected void doRemoveService(Service<?> service) {
         Object serviceId = service.getId();
         if (isRunning()) {
             destroyService(service);
@@ -123,7 +123,7 @@ public class Worker implements Executor {
         services.remove(serviceId);
     }
 
-    protected void initService(Service service) {
+    protected void initService(Service<?> service) {
         if (service.state == 0) {
             try {
                 service.state = 1;
@@ -134,7 +134,7 @@ public class Worker implements Executor {
         }
     }
 
-    protected void destroyService(Service service) {
+    protected void destroyService(Service<?> service) {
         if (service.state == 1) {
             try {
                 service.state = 2;
@@ -145,11 +145,11 @@ public class Worker implements Executor {
         }
     }
 
-    public Service getService(Object serviceId) {
+    public Service<?> getService(Object serviceId) {
         return services.get(serviceId);
     }
 
-    public Collection<Service> getServices() {
+    public Collection<Service<?>> getServices() {
         return Collections.unmodifiableCollection(services.values());
     }
 
@@ -158,7 +158,7 @@ public class Worker implements Executor {
         tempTasks.forEach(executor::execute);
         tempTasks.clear();
         execute(() -> {
-            for (Service service : services.values()) {
+            for (Service<?> service : services.values()) {
                 initService(service);
             }
         });
@@ -166,7 +166,7 @@ public class Worker implements Executor {
 
     protected void stop() {
         execute(() -> {
-            for (Service service : services.values()) {
+            for (Service<?> service : services.values()) {
                 destroyService(service);
             }
             executor.shutdown();
@@ -289,7 +289,7 @@ public class Worker implements Executor {
         try {
             updateStartTime = System.currentTimeMillis();
             updateTimerQueue();
-            for (Service service : services.values()) {
+            for (Service<?> service : services.values()) {
                 updateService(service);
             }
             expirePromises();
@@ -304,7 +304,7 @@ public class Worker implements Executor {
         timerQueue.update();
     }
 
-    protected void updateService(Service service) {
+    protected void updateService(Service<?> service) {
         try {
             service.updateTimerQueue();
             service.update();
@@ -366,28 +366,6 @@ public class Worker implements Executor {
         }
     }
 
-    /**
-     * @see NodeIdResolver
-     */
-    private int resolveTargetNodeId(Proxy proxy) {
-        int targetNodeId = proxy._getNodeId$();
-        if (targetNodeId >= 0) {
-            return targetNodeId;
-        }
-
-        NodeIdResolver nodeIdResolver = proxy._getNodeIdResolver$();
-        if (nodeIdResolver != null) {
-            return nodeIdResolver.resolve(proxy);
-        }
-
-        nodeIdResolver = node.getConfig().getTargetNodeIdResolver();
-        if (nodeIdResolver != null) {
-            return nodeIdResolver.resolve(proxy);
-        }
-
-        return 0;
-    }
-
     protected int getCallId() {
         int callId = nextCallId++;
         if (nextCallId < 0) {
@@ -396,49 +374,63 @@ public class Worker implements Executor {
         return callId;
     }
 
+    /**
+     * 发送RPC请求
+     *
+     * @param proxy            服务代理
+     * @param methodId         要调用的方法ID
+     * @param signature        方法签名字符串
+     * @param securityModifier 方法安全部修饰符
+     * @param params           方法参数列表
+     * @param <R>              方法的返回结果泛型
+     */
     @SuppressWarnings("unchecked")
-    protected <R> Promise<R> sendRequest(Proxy proxy, String signature, int securityModifier, int methodId, Object... params) {
+    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int securityModifier, Object... params) {
         long callId = (long) this.id << 32 | getCallId();
 
         Promise<Object> promise = new Promise<>(callId, signature, this);
         mappedPromises.put(promise.getCallId(), promise);
         addSortedPromise(promise);
 
-        sendRequest(proxy, promise, securityModifier, methodId, params);
+        sendRequest(proxy, promise, methodId, securityModifier, params);
 
         return (Promise<R>) promise;
     }
 
-    private void sendRequest(Proxy proxy, Promise<Object> promise, int securityModifier, int methodId, Object... params) {
+    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int securityModifier, Object... params) {
         int targetNodeId;
+        Object serviceId;
+
         try {
-            targetNodeId = resolveTargetNodeId(proxy);
+            targetNodeId = proxy._getNodeId$(this);
+            serviceId = proxy._getServiceId$(this);
         } catch (Exception e) {
-            afterSendRequestError(promise, e);
+            handleSendRequestError(promise, e);
             return;
         }
 
         if (promise.isExpired()) {
-            logger.error("发送RPC请求，已过期无需发送，targetNodeId:{}，serviceId:{}", targetNodeId, proxy._getServiceId());
+            logger.error("发送RPC请求，已过期无需发送，targetNodeId:{}，serviceId:{}", targetNodeId, serviceId);
             return;
         }
 
-        if (targetNodeId < 0) {
-            execute(() -> sendRequest(proxy, promise, securityModifier, methodId, params));
+        if (targetNodeId == -1) {
+            //延迟重新发送
+            newTimer(() -> sendRequest(proxy, promise, methodId, securityModifier, params), getNode().getConfig().getUpdateInterval());
             return;
         }
 
         try {
             promise.setExpiredTime();
-            makeParamSafe(targetNodeId, securityModifier, params);
-            Request request = new Request(node.getId(), promise.getCallId(), proxy._getServiceId(), methodId, params);
+            makeParamsSafe(targetNodeId, securityModifier, params);
+            Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
             node.sendRequest(targetNodeId, request, securityModifier);
         } catch (Exception e) {
-            afterSendRequestError(promise, e);
+            handleSendRequestError(promise, e);
         }
     }
 
-    private void afterSendRequestError(Promise<Object> promise, Exception e) {
+    private void handleSendRequestError(Promise<Object> promise, Exception e) {
         mappedPromises.remove(promise.getCallId());
         removeSortedPromise(promise);
         execute(() -> promise.setException(e));
@@ -453,9 +445,9 @@ public class Worker implements Executor {
     /**
      * 如果有参数是不安全的,则需要复制它以保证安全
      *
-     * @param securityModifier 1:标记所有参数都是安全的，参考 {@link Endpoint#paramSafe()}
+     * @param securityModifier 1:标记所有参数都是安全的，参考 {@link Endpoint#safeArgs()}
      */
-    private void makeParamSafe(int targetNodeId, int securityModifier, Object[] params) {
+    private void makeParamsSafe(int targetNodeId, int securityModifier, Object[] params) {
         if (targetNodeId != 0 && targetNodeId != this.node.getId()) {
             return;
         }
@@ -475,7 +467,7 @@ public class Worker implements Executor {
     /**
      * 如果返回结果是不安全的，则需要复制它以保证安全
      *
-     * @param securityModifier 2:标记返回结果是安全的，参考 {@link Endpoint#resultSafe()}
+     * @param securityModifier 2:标记返回结果是安全的，参考 {@link Endpoint#safeReturn()}
      */
     private Object makeResultSafe(int originNodeId, int securityModifier, Object result) {
         if (originNodeId != this.node.getId()) {
@@ -496,7 +488,7 @@ public class Worker implements Executor {
         Object result = null;
         String exception = null;
 
-        Service service = services.get(serviceId);
+        Service<?> service = services.get(serviceId);
         if (service == null) {
             logger.error("处理RPC请求，服务[{}]不存在，originNodeId:{}，callId:{}", serviceId, originNodeId, callId);
             return;

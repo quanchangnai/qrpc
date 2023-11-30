@@ -5,14 +5,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quan.rpc.Endpoint;
 import quan.rpc.Promise;
+import quan.rpc.ProxyConstructors;
 import quan.rpc.Service;
 
+import java.lang.annotation.ElementType;
 import java.util.*;
 
 /**
  * 测试服务1
  */
-public class TestService1 extends Service {
+@ProxyConstructors({1, 2, 3, 4, 6})
+public class TestService1 extends Service<Integer> {
 
     private static Logger logger = LoggerFactory.getLogger(TestService1.class);
 
@@ -20,7 +23,7 @@ public class TestService1 extends Service {
 
     private long lastTime;
 
-    private RoleService1Proxy<?> roleService1Proxy = new RoleService1Proxy<>(2L);
+    private RoleService2Proxy<?> roleService2Proxy = new RoleService2Proxy<>(2L);
 
     private TestService2Proxy testService2Proxy = new TestService2Proxy(2, 2);
 
@@ -30,7 +33,7 @@ public class TestService1 extends Service {
     }
 
     @Override
-    public Object getId() {
+    public Integer getId() {
         return id;
     }
 
@@ -49,7 +52,7 @@ public class TestService1 extends Service {
                     try {
                         Thread.sleep(1);
                     } catch (InterruptedException e) {
-                }
+                    }
                 }
                 lastTime = RandomUtils.nextInt() + a;
             }, 100, 100);
@@ -76,19 +79,19 @@ public class TestService1 extends Service {
         int b = (int) (now % 10);
         long startTime = System.nanoTime();
 
-        Promise<Integer> promise = roleService1Proxy.login1(a, b, 111L, 333L);
+        Promise<Integer> promise = roleService2Proxy.login1(a, b, 111L, 333L);
         promise.then(result1 -> {
             double costTime = (System.nanoTime() - startTime) / 1000000D;
             logger.info("TestService1:{} call RoleService1.login1({},{})={},costTime:{}", this.id, a, b, result1, costTime);
-            return roleService1Proxy.login2(a, b + 1);//result2
+            return roleService2Proxy.login2(a, b + 1);//result2
         }).then(result2 -> {
             logger.info("TestService1 call RoleService1.login2,result2:{}", result2);
-            return roleService1Proxy.login3(a, b + 2);//result3
+            return roleService2Proxy.login3(a, b + 2, null);//result3
         }).then(result3 -> {
             logger.info("TestService1 call RoleService1.login3,result3:{}", result3);
         });
 
-        Promise<Integer> count = roleService1Proxy.count(new HashSet<>(Arrays.asList(2334, 664)));
+        Promise<Integer> count = roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664)));
         count.then(c -> {
             logger.info("roleService1Proxy.count()={}", c);
         });
@@ -131,6 +134,10 @@ public class TestService1 extends Service {
     @Endpoint
     public Integer size(Set<?> set) {
         return set.size();
+    }
+
+    @Endpoint
+    public void type(ElementType type) {
     }
 
 }

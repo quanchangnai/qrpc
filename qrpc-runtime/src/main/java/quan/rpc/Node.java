@@ -38,7 +38,7 @@ public class Node {
     private Map<Integer, Worker> workers = new HashMap<>();
 
     //管理的所有服务，key:服务ID
-    private final Map<Object, Service> services = new ConcurrentHashMap<>();
+    private final Map<Object, Service<?>> services = new ConcurrentHashMap<>();
 
     private ScheduledExecutorService executor;
 
@@ -156,12 +156,12 @@ public class Node {
         return System.currentTimeMillis() + timeOffset;
     }
 
-    public void addService(Service service) {
+    public void addService(Service<?> service) {
         Worker worker = (Worker) workers.values().toArray()[RandomUtils.nextInt(0, workers.size())];
         addService(service, worker);
     }
 
-    public void addService(Service service, int workerId) {
+    public void addService(Service<?> service, int workerId) {
         Objects.requireNonNull(service, "服务不能为空");
         Object serviceId = Objects.requireNonNull(service.getId(), "服务ID不能为空");
 
@@ -177,7 +177,7 @@ public class Node {
         }
     }
 
-    public void addService(Service service, Worker worker) {
+    public void addService(Service<?> service, Worker worker) {
         Objects.requireNonNull(service);
         Objects.requireNonNull(worker);
 
@@ -188,7 +188,7 @@ public class Node {
         addService(service, worker.getId());
     }
 
-    public void addService(Service service, Predicate<Worker> predicate) {
+    public void addService(Service<?> service, Predicate<Worker> predicate) {
         Worker worker = workers.values().stream().filter(predicate).findAny().orElse(null);
         if (worker != null) {
             addService(service, worker);
@@ -200,7 +200,7 @@ public class Node {
     public void removeService(Object serviceId) {
         Objects.requireNonNull(serviceId);
 
-        Service service = services.remove(serviceId);
+        Service<?> service = services.remove(serviceId);
         if (service == null) {
             logger.error("服务[{}]不存在", serviceId);
             return;
@@ -240,7 +240,7 @@ public class Node {
      * 处理RPC请求
      */
     protected void handleRequest(Request request, int securityModifier) {
-        Service service = services.get(request.getServiceId());
+        Service<?> service = services.get(request.getServiceId());
         if (service == null) {
             logger.error("处理RPC请求，服务[{}]不存在", request.getServiceId());
         } else {
@@ -316,7 +316,9 @@ public class Node {
 
         private Function<CodedBuffer, ObjectWriter> writerFactory = ObjectWriter::new;
 
-        private NodeIdResolver targetNodeIdResolver;
+        private NodeIdResolver nodeIdResolver;
+
+        private ServiceIdResolver serviceIdResolver;
 
 
         private void checkReadonly() {
@@ -501,16 +503,29 @@ public class Node {
             return this;
         }
 
-        public NodeIdResolver getTargetNodeIdResolver() {
-            return targetNodeIdResolver;
+        public NodeIdResolver getNodeIdResolver() {
+            return nodeIdResolver;
         }
 
         /**
-         * 设置目标节点ID解析器
+         * 设置节点ID解析器
          */
-        public Config setTargetNodeIdResolver(NodeIdResolver targetNodeIdResolver) {
+        public Config setNodeIdResolver(NodeIdResolver nodeIdResolver) {
             checkReadonly();
-            this.targetNodeIdResolver = Objects.requireNonNull(targetNodeIdResolver);
+            this.nodeIdResolver = Objects.requireNonNull(nodeIdResolver);
+            return this;
+        }
+
+        public ServiceIdResolver getServiceIdResolver() {
+            return serviceIdResolver;
+        }
+
+        /**
+         * 设置服务ID解析器
+         */
+        public Config setServiceIdResolver(ServiceIdResolver serviceIdResolver) {
+            checkReadonly();
+            this.serviceIdResolver = Objects.requireNonNull(serviceIdResolver);
             return this;
         }
     }

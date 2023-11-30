@@ -9,7 +9,6 @@ import quan.rpc.ThreadPoolWorker;
 /**
  * @author quanchangnai
  */
-
 public class RpcTest1 {
 
     public static void main(String[] args) {
@@ -30,7 +29,7 @@ public class RpcTest1 {
         Node node = new Node(1, config, nettyConnector, rabbitConnector);
 
         node.addService(new TestService1(1), worker -> worker instanceof ThreadPoolWorker);
-        node.addService(new RoleService1<>(2));
+        node.addService(new RoleService2<>(2));
 
         node.start();
 

@@ -71,17 +71,17 @@ public class ThreadPoolWorker extends Worker {
     }
 
     @Override
-    protected void initService(Service service) {
+    protected void initService(Service<?> service) {
         execute(() -> super.initService(service));
     }
 
     @Override
-    protected void destroyService(Service service) {
+    protected void destroyService(Service<?> service) {
         execute(() -> super.destroyService(service));
     }
 
     @Override
-    protected void updateService(Service service) {
+    protected void updateService(Service<?> service) {
         execute(() -> {
             if (getService(service.getId()) != null) {
                 super.updateService(service);

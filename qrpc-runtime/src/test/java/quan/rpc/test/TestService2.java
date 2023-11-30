@@ -12,7 +12,7 @@ import java.util.Map;
  *
  * @author quanchangnai
  */
-public class TestService2 extends Service {
+public class TestService2 extends Service<Integer> {
 
     private static Logger logger = LoggerFactory.getLogger(TestService2.class);
 
@@ -23,8 +23,8 @@ public class TestService2 extends Service {
         int count = 0;
 
         @Override
-        public int resolve(Proxy proxy) {
-            if (count < 5) {
+        public int resolveNodeId(Proxy proxy) {
+            if (count < 2) {
                 count++;
                 return -1;
             } else {
@@ -34,14 +34,14 @@ public class TestService2 extends Service {
         }
     };
 
-    private TestService1Proxy testService1Proxy = new TestService1Proxy(1, 1);
+    private TestService1Proxy testService1Proxy = new TestService1Proxy(nodeIdResolver, 1);
 
     public TestService2(int id) {
         this.id = id;
     }
 
     @Override
-    public Object getId() {
+    public Integer getId() {
         return id;
     }
 

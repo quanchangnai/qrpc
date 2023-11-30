@@ -6,17 +6,17 @@ import quan.rpc.Service;
 /**
  * @author quanchangnai
  */
-@Service.Singleton(id = "chat")
-public class ChatService extends Service {
+public  class ChatService extends Service<String> {
 
-//    @Override
-//    public Object getId() {
-//        return super.getId();
-//    }
+    @Override
+    public String getId() {
+        return "chat";
+    }
 
     @Endpoint
     public void sendChatMsg(String msg) {
         logger.info("sendChatMsg:{}", msg);
     }
+
 
 }

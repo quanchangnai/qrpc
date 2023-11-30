@@ -1,22 +1,44 @@
 package quan.rpc;
 
-import java.util.ArrayList;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public abstract class ServiceElement {
 
+    private int id;
+
     protected String name;
 
+    //注释
     protected String comment;
 
-    //泛型的类型参数，参数名：类型上边界<T extends Object&Runnable>
-    protected LinkedHashMap<String, List<String>> originalTypeParameters = new LinkedHashMap<>();
+    /**
+     * 泛型的类型参数字符串
+     */
+    protected String typeParametersStr = "";
 
-    //原始数据的类型都是全类名，这里的类型名都是优化导入之后的类型名，大部分会变成简单类名
-    protected LinkedHashMap<String, List<String>> optimizedTypeParameters = new LinkedHashMap<>();
+    /**
+     * 泛型的类型参数边界，泛型参数名：类型上边界<T extends Object&Runnable>
+     */
+    protected LinkedHashMap<String, List<String>> typeParameterBounds = new LinkedHashMap<>();
 
     protected ServiceClass serviceClass;
+
+    private Pattern simplifyableClassNamePattern;
+
+
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
 
     public String getName() {
         return name;
@@ -38,56 +60,75 @@ public abstract class ServiceElement {
         }
     }
 
-    public LinkedHashMap<String, List<String>> getOriginalTypeParameters() {
-        return originalTypeParameters;
-    }
-
-    public void setOriginalTypeParameters(LinkedHashMap<String, List<String>> originalTypeParameters) {
-        this.originalTypeParameters = originalTypeParameters;
-    }
-
-    public String getTypeParametersStr() {
-        StringBuilder sb = new StringBuilder();
-
-        if (!optimizedTypeParameters.isEmpty()) {
-            sb.append("<");
-            int i = 0;
-            for (String typeName : optimizedTypeParameters.keySet()) {
-                if (i++ > 0) {
-                    sb.append(",");
-                }
-                sb.append(typeName);
-
-                List<String> typeBounds = new ArrayList<>(optimizedTypeParameters.get(typeName));
-                if (originalTypeParameters.get(typeName).contains(Object.class.getName())) {
-                    typeBounds.remove(0);
-                }
-                if (!typeBounds.isEmpty()) {
-                    sb.append(" extends ");
-                    sb.append(String.join(" & ", typeBounds));
-                }
-            }
-            sb.append(">");
-        }
-
-        return sb.toString();
-    }
-
     public ServiceClass getServiceClass() {
         return serviceClass;
     }
 
-    public void setServiceClass(ServiceClass serviceClass) {
-        this.serviceClass = serviceClass;
+    public String getTypeParametersStr() {
+        return typeParametersStr;
     }
 
-    public void optimizeImport4Proxy() {
-        optimizedTypeParameters.clear();
-        for (String name : originalTypeParameters.keySet()) {
-            for (String bound : originalTypeParameters.get(name)) {
-                optimizedTypeParameters.computeIfAbsent(name, k -> new ArrayList<>()).add(serviceClass.optimizeImport(bound));
-            }
+    public void setTypeParametersStr(String typeParametersStr) {
+        this.typeParametersStr = typeParametersStr;
+    }
+
+    public LinkedHashMap<String, List<String>> getTypeParameterBounds() {
+        return typeParameterBounds;
+    }
+
+    public void setTypeParameterBounds(LinkedHashMap<String, List<String>> typeParameterBounds) {
+        this.typeParameterBounds = typeParameterBounds;
+    }
+
+    //有没有泛型参数
+    public boolean hasTypeParameters() {
+        return !typeParameterBounds.isEmpty();
+    }
+
+    public void prepare() {
+        typeParametersStr = simplifyClassName(typeParametersStr);
+    }
+
+    /**
+     * 简化类名
+     *
+     * @param className 包含泛型的全类名
+     * @return 简化掉包名的类名
+     */
+    protected String simplifyClassName(String className) {
+        if (StringUtils.isEmpty(className)) {
+            return className;
         }
+
+        if (simplifyableClassNamePattern == null) {
+            //java.lang等包下的类不需要使用全类名
+            List<String> defaultPackages = Arrays.asList("java.lang", "java.util", serviceClass.getPackageName());
+            StringBuilder packagePatterns = new StringBuilder();
+            for (String defaultPackage : defaultPackages) {
+                String packagePattern = defaultPackage.replace(".", "\\.") + "\\.";
+                if (packagePatterns.length() > 0) {
+                    packagePatterns.append("|");
+                }
+                packagePatterns.append("(").append(packagePattern).append(")");
+            }
+
+            simplifyableClassNamePattern = Pattern.compile(String.format("(%s)[^.]+(,| |<|>|&|\\[|(\\.\\.\\.)|$)", packagePatterns));
+        }
+
+        Matcher matcher = simplifyableClassNamePattern.matcher(className);
+
+        StringBuilder sb = new StringBuilder();
+
+        int index = 0;
+        while (matcher.find()) {
+            sb.append(className, index, matcher.start(1));
+            index = matcher.end(1);
+        }
+
+        sb.append(className, index, className.length());
+
+        return sb.toString();
+
     }
 
 }

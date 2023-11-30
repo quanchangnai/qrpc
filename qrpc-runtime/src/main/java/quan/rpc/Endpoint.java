@@ -16,11 +16,11 @@ public @interface Endpoint {
      * 标记所有参数都是安全的<br/>
      * 原生类型及其包装类型等不可变类型一定是安全的
      */
-    boolean paramSafe() default false;
+    boolean safeArgs() default false;
 
     /**
      * 标记返回结果是安全的
      */
-    boolean resultSafe() default true;
+    boolean safeReturn() default true;
 
 }

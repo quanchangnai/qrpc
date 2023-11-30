@@ -1,5 +1,6 @@
 package quan.rpc;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -7,30 +8,24 @@ public class ServiceMethod extends ServiceElement {
 
     private int securityModifier;
 
-    public String originalReturnType;
-
-    private boolean varArgs;
+    public String returnType;
 
     //参数名:参数类型
-    private final LinkedHashMap<String, String> originalParameters = new LinkedHashMap<>();
+    private final HashMap<String, String> parameters = new LinkedHashMap<>();
 
-    public String optimizedReturnType;
-
-    //参数名:优化导入后的参数类型
-    private final LinkedHashMap<String, String> optimizedParameters = new LinkedHashMap<>();
 
     public ServiceMethod(CharSequence name) {
         this.name = name.toString();
     }
 
-    public void setParamSafe(boolean paramSafe) {
-        if (paramSafe) {
+    public void setSafeArgs(boolean safeArgs) {
+        if (safeArgs) {
             securityModifier |= 0b01;
         }
     }
 
-    public void setResultSafe(boolean resultSafe) {
-        if (resultSafe) {
+    public void setSafeReturn(boolean safeReturn) {
+        if (safeReturn) {
             securityModifier |= 0b10;
         }
     }
@@ -39,87 +34,102 @@ public class ServiceMethod extends ServiceElement {
         return securityModifier;
     }
 
-    public String getOriginalReturnType() {
-        return originalReturnType;
+    public String getReturnType() {
+        return returnType;
     }
 
-    public void setOriginalReturnType(String originalReturnType) {
-        this.originalReturnType = originalReturnType;
-    }
-
-    public String getOptimizedReturnType() {
-        return optimizedReturnType;
+    public void setReturnType(String returnType) {
+        this.returnType = returnType;
     }
 
     public boolean isReturnVoid() {
-        return Void.class.getSimpleName().equals(optimizedReturnType);
-    }
-
-    public boolean isVarArgs() {
-        return varArgs;
-    }
-
-    public void setVarArgs(boolean varArgs) {
-        this.varArgs = varArgs;
+        return Void.class.getSimpleName().equals(returnType);
     }
 
     public void addParameter(CharSequence name, String type) {
-        originalParameters.put(name.toString(), type);
+        parameters.put(name.toString(), type);
     }
 
-    public boolean isNeedCastArray(String parameterName) {
-        String parameterType = originalParameters.get(parameterName);
-        if (!parameterType.endsWith("[]")) {
+    public void setServiceClass(ServiceClass serviceClass) {
+        this.serviceClass = serviceClass;
+    }
+
+    public HashMap<String, String> getParameters() {
+        return parameters;
+    }
+
+    /**
+     * 判断参数类型是不是对象数组
+     */
+    public boolean isObjectArray(String parameterName) {
+        String parameterType = parameters.get(parameterName);
+        if (!parameterType.endsWith("[]") && !parameterType.endsWith("...")) {
             return false;
         }
-        String componentType = parameterType.substring(0, parameterType.length() - 2);
-        if (componentType.equals(String.class.getName())) {
-            return false;
-        }
+
         try {
+            String componentType = parameterType.substring(0, parameterType.length() - 2);
             return !Class.forName(componentType).isPrimitive();
         } catch (ClassNotFoundException ignored) {
             return true;
         }
     }
 
-    public LinkedHashMap<String, String> getOriginalParameters() {
-        return originalParameters;
-    }
+    /**
+     * 返回数组类型参数的组件类型
+     */
+    public String getArrayComponentType(String parameterName) {
+        String componentType;
+        String parameterType = parameters.get(parameterName);
 
-    public LinkedHashMap<String, String> getOptimizedParameters() {
-        return optimizedParameters;
-    }
-
-    public String getSignature() {
-        StringBuilder signature = new StringBuilder();
-        signature.append(name);
-        if (serviceClass.getMethodNameNums().get(name) == 1) {
-            return signature.toString();
+        if (parameterType.endsWith("[]")) {
+            componentType = parameterType.substring(0, parameterType.length() - 2);
+        } else if (parameterType.endsWith("...")) {
+            componentType = parameterType.substring(0, parameterType.length() - 3);
+        } else {
+            componentType = parameterType;
         }
 
-        signature.append("(");
-        int i = 0;
-        for (String parameterType : optimizedParameters.values()) {
-            if (i++ > 0) {
-                signature.append(", ");
-            }
-            signature.append(eraseParameterType(parameterType));
-        }
-        signature.append(")");
-        return signature.toString();
+        return simplifyClassName(componentType);
     }
 
-    //擦除方法参数的泛型
-    public String eraseParameterType(String type) {
-        int index = type.indexOf("<");
+    /**
+     * 判断方法只有一个数组参数，可变参数也算一个
+     */
+    public boolean isOneArrayParam() {
+        if (parameters.size() == 1) {
+            String parameterType = parameters.values().stream().findFirst().orElse("");
+            return parameterType.endsWith("[]") || parameterType.endsWith("...");
+        } else {
+            return false;
+        }
+    }
+
+
+    /**
+     * 判断参数是不是泛型变量
+     */
+    public boolean isGenericTypeVar(String parameterName) {
+        String parameterType = parameters.get(parameterName);
+        return typeParameterBounds.containsKey(parameterType) || serviceClass.typeParameterBounds.containsKey(parameterType);
+    }
+
+    /**
+     * 返回参数接收赋值的类型
+     */
+    public String getAssignedType(String parameterName) {
+        String parameterType = parameters.get(parameterName);
+
+        int index = parameterType.indexOf("<");
         if (index > 0) {
-            return type.substring(0, index);
+            //擦除泛型
+            return parameterType.substring(0, index);
         }
 
-        List<String> typeBounds = originalTypeParameters.get(type);
+        //泛型变量上界
+        List<String> typeBounds = typeParameterBounds.get(parameterType);
         if (typeBounds == null || typeBounds.isEmpty()) {
-            typeBounds = serviceClass.originalTypeParameters.get(type);
+            typeBounds = serviceClass.typeParameterBounds.get(parameterType);
         }
 
         if (typeBounds != null && !typeBounds.isEmpty()) {
@@ -130,32 +140,51 @@ public class ServiceMethod extends ServiceElement {
             }
         }
 
-        return type;
+        return parameterType;
     }
 
-    public void optimizeImport4Proxy() {
-        super.optimizeImport4Proxy();
-        optimizedReturnType = serviceClass.optimizeImport(originalReturnType);
+    public String getSignature() {
+        StringBuilder signature = new StringBuilder();
+        signature.append(name);
 
-        optimizedParameters.clear();
+        if (serviceClass.getMethodNameCounts().get(name) == 1) {
+            return signature.toString();
+        }
+
+        signature.append("(");
+
         int i = 0;
-
-        for (String name : originalParameters.keySet()) {
-            String parameterType = serviceClass.optimizeImport(originalParameters.get(name));
-            if (varArgs && ++i == originalParameters.size()) {
-                parameterType = parameterType.replace("[]", "...");
+        for (String parameterType : parameters.values()) {
+            if (i++ > 0) {
+                signature.append(", ");
             }
-            optimizedParameters.put(name, parameterType);
+            int index = parameterType.indexOf("<");
+            if (index > 0) {
+                //删掉泛型后缀
+                parameterType = parameterType.substring(0, index);
+            }
+            signature.append(simplifyClassName(parameterType));
         }
+
+        signature.append(")");
+
+        return signature.toString();
     }
 
-    public void optimizeImport4Caller() {
-        optimizedParameters.clear();
-        for (String name : originalParameters.keySet()) {
-            String parameterType = originalParameters.get(name);
-            parameterType = eraseParameterType(parameterType);
-            optimizedParameters.put(name, serviceClass.optimizeImport(parameterType));
+    @Override
+    public void prepare() {
+        super.prepare();
+        returnType = simplifyClassName(returnType);
+
+        HashMap<String, String> _parameters = new LinkedHashMap<>();
+
+        for (String name : this.parameters.keySet()) {
+            String type = simplifyClassName(this.parameters.get(name));
+            _parameters.put(name, type);
         }
+
+        this.parameters.putAll(_parameters);
+
     }
 
     @Override
@@ -163,9 +192,9 @@ public class ServiceMethod extends ServiceElement {
         return "ServiceMethod{" +
                 "name='" + name + '\'' +
                 ", comment='" + comment + '\'' +
-                ", typeParameters=" + originalTypeParameters +
-                ", returnType='" + originalReturnType + '\'' +
-                ", parameters=" + originalParameters +
+                ", typeParameters=" + typeParametersStr +
+                ", returnType='" + returnType + '\'' +
+                ", parameters=" + parameters +
                 '}';
     }
 
