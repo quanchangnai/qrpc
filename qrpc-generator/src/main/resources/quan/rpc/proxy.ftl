@@ -14,7 +14,7 @@ import quan.rpc.*;
 </#if>
  *<#if !customProxyPath> @see</#if> ${name}
  */
-public<#if abs> abstract</#if> class ${name}Proxy${typeParametersStr} extends ${superProxyName} {
+public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} extends ${superProxyName} {
 
     public static final String SERVICE_NAME = "${fullName}";
 

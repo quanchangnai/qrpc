@@ -9,7 +9,7 @@ public class ServiceClass extends ServiceElement {
     private String packageName;
 
     //是不是抽象类
-    private boolean abs;
+    private boolean _abstract;
 
     private final List<ServiceMethod> methods = new ArrayList<>();
 
@@ -53,12 +53,12 @@ public class ServiceClass extends ServiceElement {
         return packageName;
     }
 
-    public boolean isAbs() {
-        return abs;
+    public boolean isAbstract() {
+        return _abstract;
     }
 
-    public void setAbs(boolean abs) {
-        this.abs = abs;
+    public void setAbstract(boolean _abstract) {
+        this._abstract = _abstract;
     }
 
     public List<ServiceMethod> getMethods() {
@@ -142,7 +142,7 @@ public class ServiceClass extends ServiceElement {
     }
 
     public boolean hasConstructor(int c) {
-        return !abs && (proxyConstructors.isEmpty() || proxyConstructors.contains(c));
+        return !_abstract && (proxyConstructors.isEmpty() || proxyConstructors.contains(c));
     }
 
     /**

@@ -103,6 +103,7 @@ public abstract class ServiceElement {
         if (simplifyableClassNamePattern == null) {
             //java.lang等包下的类不需要使用全类名
             List<String> defaultPackages = Arrays.asList("java.lang", "java.util", serviceClass.getPackageName());
+
             StringBuilder packagePatterns = new StringBuilder();
             for (String defaultPackage : defaultPackages) {
                 String packagePattern = defaultPackage.replace(".", "\\.") + "\\.";

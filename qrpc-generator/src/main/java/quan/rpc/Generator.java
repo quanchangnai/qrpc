@@ -18,6 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.lang.annotation.Annotation;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
@@ -33,9 +34,9 @@ public class Generator extends AbstractProcessor {
 
     private Filer filer;
 
-    private Types typeUtils;
+    private Types types;
 
-    private Elements elementUtils;
+    private Elements elements;
 
     private TypeMirror serviceType;
 
@@ -46,9 +47,17 @@ public class Generator extends AbstractProcessor {
      */
     private String proxyPath;
 
+    /**
+     * 非法的服务方法名格式
+     */
     private final Pattern illegalMethodNamePattern = Pattern.compile("_.*\\$");
 
-    private final List<Modifier> illegalMethodModifiers = Arrays.asList(Modifier.PRIVATE, Modifier.STATIC);
+    /**
+     * 非法的服务方法修饰符
+     */
+    private final List<Modifier> illegalMethodModifiers = Arrays.asList(Modifier.PRIVATE, Modifier.STATIC, Modifier.ABSTRACT);
+
+    private final List<Class<? extends Annotation>> serviceAnnotations = Arrays.asList(Endpoint.class, ProxyConstructors.class);
 
     private Template proxyTemplate;
 
@@ -60,10 +69,10 @@ public class Generator extends AbstractProcessor {
 
         messager = processingEnv.getMessager();
         filer = processingEnv.getFiler();
-        typeUtils = processingEnv.getTypeUtils();
-        elementUtils = processingEnv.getElementUtils();
-        serviceType = typeUtils.erasure(elementUtils.getTypeElement(Service.class.getName()).asType());
-        promiseType = typeUtils.erasure(elementUtils.getTypeElement(Promise.class.getName()).asType());
+        types = processingEnv.getTypeUtils();
+        elements = processingEnv.getElementUtils();
+        serviceType = types.erasure(elements.getTypeElement(Service.class.getName()).asType());
+        promiseType = types.erasure(elements.getTypeElement(Promise.class.getName()).asType());
         proxyPath = processingEnv.getOptions().get("rpcProxyPath");
 
         try {
@@ -73,90 +82,77 @@ public class Generator extends AbstractProcessor {
             proxyTemplate = freemarkerCfg.getTemplate("proxy.ftl");
             callerTemplate = freemarkerCfg.getTemplate("caller.ftl");
         } catch (IOException e) {
-            printError(e);
+            error(e);
         }
     }
 
-    private void printError(String msg, Element element) {
-        messager.printMessage(Diagnostic.Kind.ERROR, msg, element);
+    private void warn(String msg, Element element) {
+        messager.printMessage(Diagnostic.Kind.WARNING, msg, element);
     }
 
-    private void printError(Exception e) {
+    private void error(Exception e) {
         messager.printMessage(Diagnostic.Kind.ERROR, e.toString());
         e.printStackTrace();
     }
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        Set<TypeElement> classElements = new HashSet<>();
+        Set<TypeElement> serviceClassElements = new HashSet<>();
+        Set<TypeElement> nonServiceClassElements = new HashSet<>();
 
         for (TypeElement annotation : annotations) {
-            boolean endpoint = annotation.getQualifiedName().contentEquals(Endpoint.class.getName());
             for (Element element : roundEnv.getElementsAnnotatedWith(annotation)) {
-                if (endpoint) {
-                    classElements.add((TypeElement) element.getEnclosingElement());
+                //这里会有重复
+                TypeElement classElement;
+
+                if (element instanceof TypeElement) {
+                    classElement = (TypeElement) element;
                 } else {
-                    classElements.add((TypeElement) element);
+                    classElement = (TypeElement) element.getEnclosingElement();
+                }
+
+                if (types.isAssignable(types.erasure(classElement.asType()), serviceType)) {
+                    serviceClassElements.add(classElement);
+                } else {
+                    nonServiceClassElements.add(classElement);
                 }
             }
         }
 
         for (Element rootElement : roundEnv.getRootElements()) {
-            if (rootElement instanceof TypeElement && typeUtils.isAssignable(typeUtils.erasure(rootElement.asType()), serviceType)) {
-                //没有加注解的服务类
-                classElements.add((TypeElement) rootElement);
+            if (types.isAssignable(types.erasure(rootElement.asType()), serviceType)) {
+                serviceClassElements.add((TypeElement) rootElement);
             }
         }
 
-        for (TypeElement classElement : classElements) {
-            if (checkServiceClass(classElement)) {
-                processServiceClass(classElement);
-            }
-        }
+        serviceClassElements.forEach(this::processServiceClass);
+        nonServiceClassElements.forEach(this::processNonServiceClass);
 
         return true;
     }
 
-    private boolean checkServiceClass(TypeElement classElement) {
-        boolean success = true;
-        boolean isService = typeUtils.isAssignable(typeUtils.erasure(classElement.asType()), serviceType);
-
-        if (isService && classElement.getNestingKind().isNested()) {
-            printError("service class cannot is nested", classElement);
-        }
-
-        if (!isService && classElement.getAnnotation(ProxyConstructors.class) != null) {
-            printError("non service class cannot use annotation " + ProxyConstructors.class.getSimpleName(), classElement);
-        }
-
-        for (ExecutableElement methodElement : getMethodElements(classElement, false)) {
-            if (illegalMethodNamePattern.matcher(methodElement.getSimpleName()).matches()) {
-                success = false;
-                printError("the name of the method is illegal", methodElement);
-            }
-
-            if (methodElement.getAnnotation(Endpoint.class) != null) {
-                if (!isService) {
-                    success = false;
-                    printError("endpoint method cannot declare in non service class", methodElement);
-                } else {
-                    for (Modifier illegalModifier : illegalMethodModifiers) {
-                        if (methodElement.getModifiers().contains(illegalModifier)) {
-                            success = false;
-                            printError("endpoint method cant not declare one of " + illegalMethodModifiers, methodElement);
-                        }
-                    }
-                }
+    private void processNonServiceClass(TypeElement classElement) {
+        for (Class<? extends Annotation> serviceAnnotation : serviceAnnotations) {
+            if (classElement.getAnnotation(serviceAnnotation) != null) {
+                warn("Annotation " + serviceAnnotation.getSimpleName() + " cannot declare in non service class", classElement);
             }
         }
 
-        return success;
+        for (ExecutableElement methodElement : getMethodElements(classElement)) {
+            warn("Endpoint method cannot declare in non service class", methodElement);
+        }
     }
 
+
     private void processServiceClass(TypeElement classElement) {
+        if (classElement.getNestingKind().isNested()) {
+            warn("Service class cannot is nested", classElement);
+            return;
+        }
+
         ServiceClass serviceClass = new ServiceClass(classElement.getQualifiedName().toString());
-        serviceClass.setAbs(classElement.getModifiers().contains(Modifier.ABSTRACT));
-        serviceClass.setComment(elementUtils.getDocComment(classElement));
+        serviceClass.setAbstract(classElement.getModifiers().contains(Modifier.ABSTRACT));
+        serviceClass.setComment(elements.getDocComment(classElement));
         serviceClass.setCustomProxyPath(proxyPath != null);
 
         if (!classElement.getTypeParameters().isEmpty()) {
@@ -176,16 +172,21 @@ public class Generator extends AbstractProcessor {
 
         ProxyConstructors proxyConstructors = classElement.getAnnotation(ProxyConstructors.class);
         if (proxyConstructors != null) {
-            int[] value = proxyConstructors.value();
-            if (value != null) {
-                serviceClass.setProxyConstructors(Arrays.stream(value).boxed().collect(Collectors.toSet()));
-            }
+            serviceClass.setProxyConstructors(Arrays.stream(proxyConstructors.value()).boxed().collect(Collectors.toSet()));
         }
 
         int methodId = getStartMethodId(classElement);
-        Set<ExecutableElement> methodElements = getMethodElements(classElement, true);
+        Set<ExecutableElement> methodElements = getMethodElements(classElement);
 
         for (ExecutableElement methodElement : methodElements) {
+            if (illegalMethodNamePattern.matcher(methodElement.getSimpleName()).matches()) {
+                warn("The name of the method is illegal", methodElement);
+            }
+
+            if (methodElement.getModifiers().stream().anyMatch(illegalMethodModifiers::contains)) {
+                warn("Endpoint method cant not declare one of " + illegalMethodModifiers, methodElement);
+            }
+
             ServiceMethod serviceMethod = processServiceMethod(methodElement);
             serviceMethod.setId(methodId++);
             serviceMethod.setServiceClass(serviceClass);
@@ -197,7 +198,7 @@ public class Generator extends AbstractProcessor {
             generateProxy(serviceClass);
             generateCaller(serviceClass);
         } catch (IOException e) {
-            printError(e);
+            error(e);
         }
     }
 
@@ -211,7 +212,7 @@ public class Generator extends AbstractProcessor {
         while (true) {
             DeclaredType superClassType = (DeclaredType) tempClassElement.getSuperclass();
             ancestorClassTypes.add(superClassType);
-            if (typeUtils.isSameType(typeUtils.erasure(superClassType), serviceType)) {
+            if (types.isSameType(types.erasure(superClassType), serviceType)) {
                 break;
             }
             tempClassElement = (TypeElement) superClassType.asElement();
@@ -247,11 +248,11 @@ public class Generator extends AbstractProcessor {
         return idTypeMirror;
     }
 
-    private Set<ExecutableElement> getMethodElements(TypeElement classElement, boolean onlyEndpoint) {
+    private Set<ExecutableElement> getMethodElements(TypeElement classElement) {
         Set<ExecutableElement> methodElements = new LinkedHashSet<>();
 
         for (Element memberElement : classElement.getEnclosedElements()) {
-            if (memberElement.getKind() == ElementKind.METHOD && (!onlyEndpoint || memberElement.getAnnotation(Endpoint.class) != null)) {
+            if (memberElement.getKind() == ElementKind.METHOD && memberElement.getAnnotation(Endpoint.class) != null) {
                 methodElements.add((ExecutableElement) memberElement);
             }
         }
@@ -263,12 +264,12 @@ public class Generator extends AbstractProcessor {
         DeclaredType superClassType = (DeclaredType) classElement.getSuperclass();
         TypeElement superClassElement = (TypeElement) superClassType.asElement();
 
-        if (typeUtils.isSameType(typeUtils.erasure(superClassType), serviceType)) {
+        if (types.isSameType(types.erasure(superClassType), serviceType)) {
             return 1;
         }
 
         int superStartMethodId = getStartMethodId(superClassElement);
-        Set<ExecutableElement> superMethodElements = getMethodElements(superClassElement, true);
+        Set<ExecutableElement> superMethodElements = getMethodElements(superClassElement);
 
         return superStartMethodId + superMethodElements.size();
     }
@@ -289,7 +290,7 @@ public class Generator extends AbstractProcessor {
 
     private ServiceMethod processServiceMethod(ExecutableElement executableElement) {
         ServiceMethod serviceMethod = new ServiceMethod(executableElement.getSimpleName());
-        serviceMethod.setComment(elementUtils.getDocComment(executableElement));
+        serviceMethod.setComment(elements.getDocComment(executableElement));
 
         if (!executableElement.getTypeParameters().isEmpty()) {
             serviceMethod.setTypeParametersStr("<" + executableElement.getTypeParameters() + ">");
@@ -318,10 +319,10 @@ public class Generator extends AbstractProcessor {
         TypeMirror returnType = executableElement.getReturnType();
 
         if (returnType.getKind().isPrimitive()) {
-            serviceMethod.setReturnType(typeUtils.boxedClass((PrimitiveType) returnType).asType().toString());
+            serviceMethod.setReturnType(types.boxedClass((PrimitiveType) returnType).asType().toString());
         } else if (returnType.getKind() == TypeKind.VOID) {
             serviceMethod.setReturnType(Void.class.getSimpleName());
-        } else if (typeUtils.isAssignable(typeUtils.erasure(returnType), promiseType)) {
+        } else if (types.isAssignable(types.erasure(returnType), promiseType)) {
             serviceMethod.setReturnType(((DeclaredType) returnType).getTypeArguments().get(0).toString());
         } else {
             serviceMethod.setReturnType(returnType.toString());
@@ -372,7 +373,7 @@ public class Generator extends AbstractProcessor {
         try {
             proxyTemplate.process(serviceClass, proxyWriter);
         } catch (Exception e) {
-            printError(e);
+            error(e);
         } finally {
             proxyWriter.close();
         }
@@ -385,7 +386,7 @@ public class Generator extends AbstractProcessor {
         try (Writer callerWriter = callerFile.openWriter()) {
             callerTemplate.process(serviceClass, callerWriter);
         } catch (Exception e) {
-            printError(e);
+            error(e);
         }
     }
 
