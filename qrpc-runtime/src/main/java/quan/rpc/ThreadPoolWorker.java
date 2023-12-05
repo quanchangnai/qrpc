@@ -1,10 +1,6 @@
 package quan.rpc;
 
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
-import quan.message.CodedBuffer;
-import quan.message.DefaultCodedBuffer;
-import quan.rpc.serialize.ObjectReader;
-import quan.rpc.serialize.ObjectWriter;
 
 import java.util.Map;
 import java.util.concurrent.*;
@@ -60,14 +56,6 @@ public class ThreadPoolWorker extends Worker {
             threadLocal.set(this);
             task.run();
         });
-    }
-
-    protected Object cloneObject(Object object) {
-        CodedBuffer buffer = new DefaultCodedBuffer();
-        ObjectWriter writer = getNode().getConfig().getWriterFactory().apply(buffer);
-        ObjectReader reader = getNode().getConfig().getReaderFactory().apply(buffer);
-        writer.write(object);
-        return reader.read();
     }
 
     @Override
@@ -162,6 +150,11 @@ public class ThreadPoolWorker extends Worker {
         return nextCallId.getAndUpdate(i -> ++i < 0 ? 1 : i);
     }
 
+    @Override
+    protected Object cloneObject(Object object) {
+        return SerializeUtils.clone(object, false);
+    }
+
     private static class Executor extends ThreadPoolExecutor {
 
         private final AtomicInteger submittedTaskCount = new AtomicInteger();
@@ -175,7 +168,6 @@ public class ThreadPoolWorker extends Worker {
         }
 
         @Override
-        @SuppressWarnings("NullableProblems")
         public void execute(Runnable task) {
             submittedTaskCount.incrementAndGet();
             try {
@@ -197,7 +189,6 @@ public class ThreadPoolWorker extends Worker {
             Executor executor;
 
             @Override
-            @SuppressWarnings("NullableProblems")
             public boolean offer(Runnable task) {
                 int poolSize = executor.getPoolSize();
                 if (executor.submittedTaskCount.get() > poolSize * executor.poolSizeFactor && poolSize < executor.getMaximumPoolSize()) {

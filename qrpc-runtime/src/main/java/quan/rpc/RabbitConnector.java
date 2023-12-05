@@ -2,11 +2,6 @@ package quan.rpc;
 
 import com.rabbitmq.client.*;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
-import quan.message.CodedBuffer;
-import quan.message.DefaultCodedBuffer;
-import quan.rpc.protocol.Protocol;
-import quan.rpc.protocol.Request;
-import quan.rpc.serialize.ObjectWriter;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -31,7 +26,7 @@ public class RabbitConnector extends Connector {
 
     private Predicate<Integer> remoteChecker;
 
-    private ThreadLocal<Channel> channelHolder;
+    private ThreadLocal<Channel> localChannel;
 
     private ScheduledExecutorService executor;
 
@@ -66,13 +61,13 @@ public class RabbitConnector extends Connector {
 
     protected void start() {
         BasicThreadFactory threadFactory = new BasicThreadFactory.Builder().namingPattern("rabbit-connector-thread-%d").build();
-        executor = Executors.newScheduledThreadPool(node.getConfig().getWorkerNum(), threadFactory);
-        channelHolder = ThreadLocal.withInitial(this::initChannel);
+        executor = Executors.newScheduledThreadPool(node.getConfig().getIoThreadNum(), threadFactory);
+        localChannel = ThreadLocal.withInitial(this::initChannel);
         executor.execute(this::connect);
     }
 
     protected void stop() {
-        channelHolder = null;
+        localChannel = null;
         if (connection != null) {
             connection.abort();
             connection = null;
@@ -107,10 +102,10 @@ public class RabbitConnector extends Connector {
         if (connection == null) {
             throw new RuntimeException("RabbitMQ连接还未建立");
         }
-        Channel channel = channelHolder.get();
+        Channel channel = localChannel.get();
         if (!channel.isOpen()) {
-            channelHolder.remove();
-            channel = channelHolder.get();
+            localChannel.remove();
+            channel = localChannel.get();
         }
         return channel;
     }
@@ -144,9 +139,17 @@ public class RabbitConnector extends Connector {
             channel.basicConsume(queueName, true, new DefaultConsumer(channel) {
                 @Override
                 public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) {
+                    Protocol protocol;
+
                     try {
-                        CodedBuffer buffer = new DefaultCodedBuffer(body);
-                        Protocol protocol = node.getConfig().getReaderFactory().apply(buffer).read();
+                        protocol = SerializeUtils.deserialize(body);
+                    } catch (Exception e) {
+                        logger.error("反序列化协议失败", e);
+                        return;
+                    }
+
+                    try {
+
                         handleProtocol(protocol);
                     } catch (Exception e) {
                         logger.error("处理协议出错", e);
@@ -171,16 +174,13 @@ public class RabbitConnector extends Connector {
         //异步发送，防止阻塞线程工作者
         executor.execute(() -> {
             try {
-                CodedBuffer buffer = new DefaultCodedBuffer();
-                ObjectWriter objectWriter = node.getConfig().getWriterFactory().apply(buffer);
-                objectWriter.write(protocol);
-
+                byte[] bytes = SerializeUtils.serialize(protocol, true);
                 //exchange不存在时不会报错，会异步关闭channel
-                getChannel().basicPublish(exchangeName(remoteId), "", null, buffer.remainingBytes());
+                getChannel().basicPublish(exchangeName(remoteId), "", null, bytes);
             } catch (Exception e) {
-                if (protocol instanceof Request) {
+                if (protocol instanceof Protocol.Request) {
                     CallException callException = new CallException(String.format("发送协议到远程节点[%s]出错", remoteId), e);
-                    long callId = ((Request) protocol).getCallId();
+                    long callId = ((Protocol.Request) protocol).getCallId();
                     worker.execute(() -> worker.handlePromise(callId, callException, null));
                 } else {
                     logger.error("发送协议出错，{}", protocol, e);

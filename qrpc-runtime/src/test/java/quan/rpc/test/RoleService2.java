@@ -1,6 +1,5 @@
 package quan.rpc.test;
 
-import quan.message.Message;
 import quan.rpc.Endpoint;
 
 import java.util.Arrays;
@@ -38,7 +37,7 @@ public class RoleService2<T extends Object & Runnable> extends RoleService1 {
     }
 
     @Endpoint
-    public int login2(Integer a, Integer b, Message... messages) {
+    public int login2(Integer a, Integer b, Object... oo) {
         int r = a + b;
         logger.info("Execute RoleService1:{}.login2({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
         return r;

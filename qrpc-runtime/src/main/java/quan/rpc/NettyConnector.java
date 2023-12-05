@@ -3,6 +3,8 @@ package quan.rpc;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufInputStream;
+import io.netty.buffer.ByteBufOutputStream;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
@@ -15,12 +17,8 @@ import io.netty.handler.logging.LoggingHandler;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quan.message.CodedBuffer;
-import quan.message.NettyCodedBuffer;
-import quan.rpc.protocol.Handshake;
-import quan.rpc.protocol.PingPong;
-import quan.rpc.protocol.Protocol;
-import quan.rpc.serialize.ObjectWriter;
+import quan.rpc.Protocol.Handshake;
+import quan.rpc.Protocol.PingPong;
 
 import java.util.Collections;
 import java.util.Map;
@@ -142,11 +140,10 @@ public class NettyConnector extends Connector {
         ByteBuf byteBuf = context.alloc().buffer();
 
         try {
-            ObjectWriter objectWriter = node.getConfig().getWriterFactory().apply(new NettyCodedBuffer(byteBuf));
-            objectWriter.write(protocol);
-        } catch (RuntimeException e) {
+            SerializeUtils.serialize(protocol, new ByteBufOutputStream(byteBuf), true);
+        } catch (Exception e) {
             byteBuf.release();
-            throw e;
+            throw new RuntimeException("序列化协议失败", e);
         }
 
         // TODO 刷新会执行系统调用，可能需要优化
@@ -183,7 +180,6 @@ public class NettyConnector extends Connector {
     /**
      * 用于接收远程节点的数据
      */
-    @SuppressWarnings("NullableProblems")
     private static class Receiver {
 
         private final Logger logger = LoggerFactory.getLogger(getClass());
@@ -204,7 +200,7 @@ public class NettyConnector extends Connector {
 
         public void start() {
             EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-            EventLoopGroup workerGroup = new NioEventLoopGroup(connector.node.getConfig().getWorkerNum());
+            EventLoopGroup workerGroup = new NioEventLoopGroup(connector.node.getConfig().getIoThreadNum());
 
             serverBootstrap = new ServerBootstrap();
             serverBootstrap.group(bossGroup, workerGroup)
@@ -224,8 +220,13 @@ public class NettyConnector extends Connector {
 
                                 @Override
                                 protected void channelRead0(ChannelHandlerContext context, ByteBuf msg) {
-                                    CodedBuffer buffer = new NettyCodedBuffer(msg);
-                                    Protocol protocol = connector.node.getConfig().getReaderFactory().apply(buffer).read();
+                                    Protocol protocol;
+                                    try {
+                                        protocol = SerializeUtils.deserialize(new ByteBufInputStream(msg), true);
+                                    } catch (Exception e) {
+                                        logger.error("反序列化协议失败", e);
+                                        return;
+                                    }
 
                                     if (protocol instanceof Handshake) {
                                         if (!connector.handleHandshake((Handshake) protocol)) {
@@ -263,7 +264,6 @@ public class NettyConnector extends Connector {
     /**
      * 用于向远程节点发送数据
      */
-    @SuppressWarnings("NullableProblems")
     private static class Sender {
 
         private final Logger logger = LoggerFactory.getLogger(getClass());

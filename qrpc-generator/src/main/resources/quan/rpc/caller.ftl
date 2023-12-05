@@ -20,6 +20,7 @@ public final class ${name}Caller extends Caller {
     @Override
     public Object call(Service service, int methodId, Object... params) throws Throwable {
         ${name} ${name?uncap_first} = (${name}) service;
+        
         switch (methodId) {
         <#list methods as method>
             case ${method.id}:
@@ -29,9 +30,7 @@ public final class ${name}Caller extends Caller {
                 return ${name?uncap_first}.${method.name}(<#rt>
             </#if>
             <#list method.parameters?keys as paramName>
-                <#if method.isObjectArray(paramName)>
-                    toArray(params[${paramName?index}], ${method.getArrayComponentType(paramName)}.class)<#t>
-                <#elseif method.isGenericTypeVar(paramName)>
+                <#if method.isGenericTypeVar(paramName)>
                 params[${paramName?index}]<#t>
                 <#else>
                 (${method.getAssignedType(paramName)}) params[${paramName?index}]<#t>

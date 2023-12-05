@@ -28,4 +28,12 @@ public class RoleService4 extends RoleService3<Integer, Runnable> {
         return "f4";
     }
 
+    @Override
+    public String toString() {
+        return "RoleService4{"
+                + "id:" + getId()
+                + ",name:" + getName()
+                + ",level:" + getLevel()
+                + "}";
+    }
 }

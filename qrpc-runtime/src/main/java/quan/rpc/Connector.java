@@ -2,9 +2,8 @@ package quan.rpc;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quan.rpc.protocol.Protocol;
-import quan.rpc.protocol.Request;
-import quan.rpc.protocol.Response;
+import quan.rpc.Protocol.Request;
+import quan.rpc.Protocol.Response;
 
 /**
  * 网络连接器

@@ -59,23 +59,6 @@ public class ServiceMethod extends ServiceElement {
     }
 
     /**
-     * 判断参数类型是不是对象数组
-     */
-    public boolean isObjectArray(String parameterName) {
-        String parameterType = parameters.get(parameterName);
-        if (!parameterType.endsWith("[]") && !parameterType.endsWith("...")) {
-            return false;
-        }
-
-        try {
-            String componentType = parameterType.substring(0, parameterType.length() - 2);
-            return !Class.forName(componentType).isPrimitive();
-        } catch (ClassNotFoundException ignored) {
-            return true;
-        }
-    }
-
-    /**
      * 返回数组类型参数的组件类型
      */
     public String getArrayComponentType(String parameterName) {
@@ -119,6 +102,9 @@ public class ServiceMethod extends ServiceElement {
      */
     public String getAssignedType(String parameterName) {
         String parameterType = parameters.get(parameterName);
+        if (parameterType.endsWith("...")) {
+            parameterType = parameterType.substring(0, parameterType.length() - 3) + "[]";
+        }
 
         int index = parameterType.indexOf("<");
         if (index > 0) {

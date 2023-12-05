@@ -14,13 +14,9 @@ import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
-import java.io.File;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
+import java.io.*;
 import java.lang.annotation.Annotation;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -343,20 +339,6 @@ public class Generator extends AbstractProcessor {
         return serviceMethod;
     }
 
-    /**
-     * 自定义递归创建目录，因为使用gradle编译时，File.mkdirs的路径不对
-     */
-    private boolean mkdirs(File path) {
-        if (path.exists()) {
-            return false;
-        }
-        if (path.mkdir()) {
-            return true;
-        }
-        File parent = path.getParentFile();
-        return parent != null && mkdirs(parent);
-    }
-
     private void generateProxy(ServiceClass serviceClass) throws IOException {
         Writer proxyWriter;
 
@@ -365,9 +347,10 @@ public class Generator extends AbstractProcessor {
             proxyWriter = proxyFile.openWriter();
         } else {
             File path = new File(proxyPath, serviceClass.getPackageName().replace(".", "/"));
-            mkdirs(path);
+            //noinspection ResultOfMethodCallIgnored
+            path.mkdirs();
             File file = new File(path, serviceClass.getName() + "Proxy.java");
-            proxyWriter = new OutputStreamWriter(Files.newOutputStream(file.toPath()), StandardCharsets.UTF_8);
+            proxyWriter = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8);
         }
 
         try {

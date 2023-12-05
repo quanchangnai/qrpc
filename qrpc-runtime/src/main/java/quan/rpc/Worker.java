@@ -2,12 +2,8 @@ package quan.rpc;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quan.message.CodedBuffer;
-import quan.message.DefaultCodedBuffer;
-import quan.rpc.protocol.Request;
-import quan.rpc.protocol.Response;
-import quan.rpc.serialize.ObjectReader;
-import quan.rpc.serialize.ObjectWriter;
+import quan.rpc.Protocol.Request;
+import quan.rpc.Protocol.Response;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -52,10 +48,6 @@ public class Worker implements Executor {
 
     private int nextCallId = 1;
 
-    private ObjectWriter writer;
-
-    private ObjectReader reader;
-
     private volatile long updateReadyTime;
 
     private volatile long updateStartTime;
@@ -68,9 +60,6 @@ public class Worker implements Executor {
 
     protected Worker(Node node) {
         this.node = node;
-        CodedBuffer buffer = new DefaultCodedBuffer();
-        this.writer = node.getConfig().getWriterFactory().apply(buffer);
-        this.reader = node.getConfig().getReaderFactory().apply(buffer);
     }
 
     protected <K, V> Map<K, V> newMap() {
@@ -437,9 +426,7 @@ public class Worker implements Executor {
     }
 
     protected Object cloneObject(Object object) {
-        this.writer.getBuffer().clear();
-        this.writer.write(object);
-        return this.reader.read();
+        return SerializeUtils.clone(object, true);
     }
 
     /**

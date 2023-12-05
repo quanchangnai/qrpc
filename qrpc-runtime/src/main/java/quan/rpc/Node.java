@@ -4,16 +4,11 @@ import org.apache.commons.lang3.RandomUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quan.message.CodedBuffer;
-import quan.rpc.protocol.Protocol;
-import quan.rpc.protocol.Request;
-import quan.rpc.protocol.Response;
-import quan.rpc.serialize.ObjectReader;
-import quan.rpc.serialize.ObjectWriter;
+import quan.rpc.Protocol.Request;
+import quan.rpc.Protocol.Response;
 
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -295,6 +290,8 @@ public class Node {
 
         private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
 
+        private int ioThreadNum = 4;
+
         /**
          * 线程池工作者核心池大小
          */
@@ -311,10 +308,6 @@ public class Node {
         private int threadPoolWorkerPoolSizeFactor;
 
         private Supplier<ThreadPoolExecutor> threadPoolFactory;
-
-        private Function<CodedBuffer, ObjectReader> readerFactory = ObjectReader::new;
-
-        private Function<CodedBuffer, ObjectWriter> writerFactory = ObjectWriter::new;
 
         private NodeIdResolver nodeIdResolver;
 
@@ -402,6 +395,20 @@ public class Node {
             return this;
         }
 
+        public int getIoThreadNum() {
+            return ioThreadNum;
+        }
+
+        /**
+         * 设置网络ID线程数量
+         */
+        public Config setIoThreadNum(int ioThreadNum) {
+            checkReadonly();
+            this.ioThreadNum = ioThreadNum;
+            Validate.isTrue(singleThreadWorkerNum >= 1, "网络ID线程数量不能小于1");
+            return this;
+        }
+
         public int getSingleThreadWorkerNum() {
             return singleThreadWorkerNum;
         }
@@ -474,33 +481,6 @@ public class Node {
                 return singleThreadWorkerNum;
             }
 
-        }
-
-        public Function<CodedBuffer, ObjectReader> getReaderFactory() {
-            return readerFactory;
-        }
-
-        /**
-         * 设置{@link ObjectReader}工厂，用于扩展对象序列化
-         */
-        public Config setReaderFactory(Function<CodedBuffer, ObjectReader> readerFactory) {
-            checkReadonly();
-            this.readerFactory = Objects.requireNonNull(readerFactory);
-            return this;
-        }
-
-        public Function<CodedBuffer, ObjectWriter> getWriterFactory() {
-            return writerFactory;
-        }
-
-
-        /**
-         * 设置{@link ObjectWriter}工厂，用于扩展对象序列化
-         */
-        public Config setWriterFactory(Function<CodedBuffer, ObjectWriter> writerFactory) {
-            checkReadonly();
-            this.writerFactory = Objects.requireNonNull(writerFactory);
-            return this;
         }
 
         public NodeIdResolver getNodeIdResolver() {
