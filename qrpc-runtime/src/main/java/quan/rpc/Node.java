@@ -286,7 +286,9 @@ public class Node {
 
         private int maxUpdateInterval = 100;
 
-        private int callTtl = 10000;
+        private int callTtl = 1000 * 10;
+
+        private int maxCallTtl = 1000 * 60 * 5;
 
         private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
 
@@ -325,6 +327,7 @@ public class Node {
             Validate.isTrue(maxUpdateWaitTime > 0 && maxUpdateWaitTime < updateInterval, "最大刷帧等待时间[%d]错误", maxUpdateWaitTime);
             Validate.isTrue(maxUpdateCostTime > 0 && maxUpdateCostTime < updateInterval, "最大刷帧消耗时间[%d]错误", maxUpdateCostTime);
             Validate.isTrue(maxUpdateInterval > updateInterval, "最大刷帧间隔时间[%d]错误", maxUpdateInterval);
+            Validate.isTrue(callTtl < maxCallTtl, "调用超时时间[%d]错误", callTtl);
         }
 
 
@@ -368,19 +371,22 @@ public class Node {
             return this;
         }
 
-        /**
-         * 设置{@link Worker}最大刷帧间隔时间(毫秒)，{@link #maxUpdateInterval} > {@link #updateInterval}
-         */
         public int getMaxUpdateInterval() {
             return maxUpdateInterval;
         }
 
+        /**
+         * 设置{@link Worker}最大刷帧间隔时间(毫秒)，{@link #maxUpdateInterval} > {@link #updateInterval}
+         */
         public Config setMaxUpdateInterval(int maxUpdateInterval) {
             checkReadonly();
             this.maxUpdateInterval = maxUpdateInterval;
             return this;
         }
 
+        /**
+         * 返回调用超时时间(毫秒)
+         */
         public int getCallTtl() {
             return callTtl;
         }
@@ -395,12 +401,29 @@ public class Node {
             return this;
         }
 
+        /**
+         * 返回最大调用超时时间(毫秒)
+         */
+        public int getMaxCallTtl() {
+            return maxCallTtl;
+        }
+
+        /**
+         * 设置最大调用超时时间(秒)
+         */
+        public Config setMaxCallTtl(int maxCallTtl) {
+            checkReadonly();
+            Validate.isTrue(maxCallTtl >= 10, "最大调用超时时间不能小于10秒");
+            this.maxCallTtl = maxCallTtl * 1000;
+            return this;
+        }
+
         public int getIoThreadNum() {
             return ioThreadNum;
         }
 
         /**
-         * 设置网络ID线程数量
+         * 设置网络IO线程数量
          */
         public Config setIoThreadNum(int ioThreadNum) {
             checkReadonly();

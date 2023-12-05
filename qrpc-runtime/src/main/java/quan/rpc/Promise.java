@@ -48,7 +48,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
         this.callId = callId;
         this.signature = signature;
         this.worker = worker;
-        setExpiredTime();
+        setExpiredTime(0);
     }
 
     protected long getCallId() {
@@ -119,8 +119,17 @@ public class Promise<R> implements Comparable<Promise<?>> {
         handle(exceptionHandler, exception);
     }
 
-    protected void setExpiredTime() {
-        this.expiredTime = System.currentTimeMillis() + worker.getNode().getConfig().getCallTtl();
+    /**
+     * 设置过期时间(秒)
+     */
+    protected void setExpiredTime(long expiredTime) {
+        if (expiredTime <= 0) {
+            expiredTime = worker.getNode().getConfig().getCallTtl();
+        } else {
+            expiredTime = Math.min(expiredTime * 1000, worker.getNode().getConfig().getMaxCallTtl());
+        }
+
+        this.expiredTime = System.currentTimeMillis() + expiredTime;
     }
 
     /**

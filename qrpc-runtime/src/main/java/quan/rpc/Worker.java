@@ -193,7 +193,6 @@ public class Worker implements Executor {
 
 
     @Override
-    @SuppressWarnings("NullableProblems")
     public void execute(Runnable task) {
         if (executor == null) {
             tempTasks.add(task);
@@ -366,18 +365,20 @@ public class Worker implements Executor {
     /**
      * 发送RPC请求
      *
-     * @param proxy            服务代理
-     * @param methodId         要调用的方法ID
-     * @param signature        方法签名字符串
-     * @param securityModifier 方法安全部修饰符
-     * @param params           方法参数列表
      * @param <R>              方法的返回结果泛型
+     * @param proxy            服务代理
+     * @param methodId         方法ID
+     * @param signature        方法签名字符串
+     * @param securityModifier 方法的安全修饰符
+     * @param expiredTime      方法的过期时间
+     * @param params           方法参数列表
      */
     @SuppressWarnings("unchecked")
-    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int securityModifier, Object... params) {
+    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int securityModifier, int expiredTime, Object... params) {
         long callId = (long) this.id << 32 | getCallId();
 
         Promise<Object> promise = new Promise<>(callId, signature, this);
+        promise.setExpiredTime(expiredTime);
         mappedPromises.put(promise.getCallId(), promise);
         addSortedPromise(promise);
 
@@ -410,7 +411,6 @@ public class Worker implements Executor {
         }
 
         try {
-            promise.setExpiredTime();
             makeParamsSafe(targetNodeId, securityModifier, params);
             Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
             node.sendRequest(targetNodeId, request, securityModifier);

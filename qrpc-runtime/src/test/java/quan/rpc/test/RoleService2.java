@@ -29,7 +29,7 @@ public class RoleService2<T extends Object & Runnable> extends RoleService1 {
         return super.getLevel();
     }
 
-    @Endpoint
+    @Endpoint(expiredTime = 30)
     public int login1(int a, Integer b, Long... ll) {
         int r = a + b;
         logger.info("Execute RoleService1:{}.login1({},{},{})={} at Worker:{}", id, a, b, Arrays.toString(ll), r, this.getWorker().getId());
@@ -64,13 +64,13 @@ public class RoleService2<T extends Object & Runnable> extends RoleService1 {
      * 角色登陆1
      */
     @Endpoint
-    public void logout(T t,int a) {
+    public void logout(T t, int a) {
         this.t = t;
         logger.info("logout1:{}", t);
     }
 
     @Endpoint
-    public <T> void logout(T t,String s) {
+    public <T> void logout(T t, String s) {
         logger.info("logout2:{}", t);
     }
 

@@ -336,6 +336,8 @@ public class Generator extends AbstractProcessor {
         serviceMethod.setSafeArgs(safeArgs);
         serviceMethod.setSafeReturn(safeReturn);
 
+        serviceMethod.setExpiredTime(endpoint.expiredTime());
+
         return serviceMethod;
     }
 

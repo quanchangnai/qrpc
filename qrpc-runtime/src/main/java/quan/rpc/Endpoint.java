@@ -19,8 +19,14 @@ public @interface Endpoint {
     boolean safeArgs() default false;
 
     /**
-     * 标记返回结果是安全的
+     * 标记返回结果是安全的<br/>
+     * 原生类型及其包装类型等不可变类型一定是安全的
      */
     boolean safeReturn() default true;
+
+    /**
+     * 调用的过期时间(秒)，不能超过{@link Node.Config#getMaxCallTtl()}，小于等于0代表使用默认值:{@link Node.Config#getCallTtl()}
+     */
+    int expiredTime() default 0;
 
 }

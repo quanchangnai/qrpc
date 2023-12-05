@@ -13,6 +13,7 @@ public class ServiceMethod extends ServiceElement {
     //参数名:参数类型
     private final HashMap<String, String> parameters = new LinkedHashMap<>();
 
+    private int expiredTime;
 
     public ServiceMethod(CharSequence name) {
         this.name = name.toString();
@@ -56,6 +57,15 @@ public class ServiceMethod extends ServiceElement {
 
     public HashMap<String, String> getParameters() {
         return parameters;
+    }
+
+
+    public int getExpiredTime() {
+        return expiredTime;
+    }
+
+    public void setExpiredTime(int expiredTime) {
+        this.expiredTime = expiredTime;
     }
 
     /**
