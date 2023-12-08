@@ -1,7 +1,5 @@
 package quan.rpc;
 
-import java.util.Objects;
-
 /**
  * 服务方法可以先返回延迟结果，过一段时间后再使用它设置真实返回值
  *
@@ -34,36 +32,27 @@ public final class DelayedResult<R> extends Promise<R> {
         this.securityModifier = securityModifier;
     }
 
-    void setHandler() {
-        then(r -> {
-            this.worker.handleDelayedResult(this);
-        }).except(e -> {
-            this.worker.handleDelayedResult(this);
-        });
-    }
-
     @Override
     public void setResult(R result) {
-        if (this.isFinished()) {
+        if (this.isDone()) {
             throw new IllegalStateException("不能重复设置延迟结果");
+        } else {
+            super.setResult(result);
         }
-
-        this.worker.execute(() -> super.setResult(result));
     }
 
     @Override
-    public void setException(Exception exception) {
-        Objects.requireNonNull(exception, "参数[exception]不能为空");
-
-        if (this.isFinished()) {
+    public void setException(Throwable e) {
+        if (this.isDone()) {
             throw new IllegalStateException("不能重复设置延迟结果");
+        } else {
+            super.setException(e);
         }
-
-        this.worker.execute(() -> super.setException(exception));
     }
 
     String getExceptionStr() {
-        return exception == null ? null : exception.toString();
+        Throwable e = getException();
+        return e == null ? null : e.toString();
     }
 
 }

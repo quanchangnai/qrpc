@@ -23,6 +23,8 @@ public class TestService1 extends Service<Integer> {
 
     private long lastTime;
 
+    private int x;
+
     private RoleService2Proxy<?> roleService2Proxy = new RoleService2Proxy<>(2L);
 
     private TestService2Proxy testService2Proxy = new TestService2Proxy(2, 2);
@@ -54,7 +56,7 @@ public class TestService1 extends Service<Integer> {
                     } catch (InterruptedException e) {
                     }
                 }
-                lastTime = RandomUtils.nextInt() + a;
+                x = RandomUtils.nextInt() + a;
             }, 100, 100);
         }
 
@@ -68,10 +70,13 @@ public class TestService1 extends Service<Integer> {
     @Override
     protected void update() {
         long now = System.currentTimeMillis();
-        if (now > 0) {
-            return;
+
+        synchronized (this) {
+            if (now - lastTime < 3000) {
+                return;
+            }
+            lastTime = now;
         }
-        lastTime = now;
 
         logger.info("TestService1:{} call RoleService1 at worker{}", this.id, this.getWorker().getId());
 
@@ -89,13 +94,29 @@ public class TestService1 extends Service<Integer> {
             return roleService2Proxy.login3(a, b + 2, null);//result3
         }).then(result3 -> {
             logger.info("TestService1 call RoleService1.login3,result3:{}", result3);
+        }).except(e -> {
+            logger.error("RoleService1", e);
         });
 
-        Promise<Integer> count = roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664)));
-        count.then(c -> {
-            logger.info("roleService1Proxy.count()={}", c);
+        Promise<Integer> countPromise = roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664)));
+        countPromise.then(c -> {
+            logger.info("1:roleService1Proxy.count()={}", c);
+        }).except(e -> {
+            logger.error("2:roleService1Proxy.count() error", e);
+            return roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664, 4)));
+        }).then(r -> {
+            logger.info("4:roleService1Proxy.count()={}", r);
+        }).except(e -> {
+            logger.error("3:roleService1Proxy.count() error", e);
         });
 
+        countPromise.then(c -> {
+            logger.info("5:roleService1Proxy.count()={}", c);
+        });
+
+        countPromise.except(e -> {
+            logger.error("6:roleService1Proxy.count() error", e);
+        });
     }
 
 

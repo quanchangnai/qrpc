@@ -52,6 +52,11 @@ public abstract class Protocol {
          */
         private Object[] params;
 
+        /**
+         * 过期时间
+         */
+        private long expiredTime;
+
         protected Request() {
         }
 
@@ -79,13 +84,22 @@ public abstract class Protocol {
             return params;
         }
 
+        public long getExpiredTime() {
+            return expiredTime;
+        }
+
+        public void setExpiredTime(long expiredTime) {
+            this.expiredTime = expiredTime;
+        }
+
         @Override
         public String toString() {
             return "Request{" +
                     "originNodeId='" + getOriginNodeId() + '\'' +
-                    "callId=" + callId +
+                    ", callId=" + callId +
                     ", serviceId=" + serviceId +
                     ", methodId=" + methodId +
+                    ", expiredTime=" + expiredTime +
                     ", params=" + Arrays.toString(params) +
                     '}';
         }
@@ -135,7 +149,7 @@ public abstract class Protocol {
         public String toString() {
             return "Response{" +
                     "originNodeId='" + getOriginNodeId() + '\'' +
-                    "callId=" + callId +
+                    ", callId=" + callId +
                     ", result=" + result +
                     ", exception='" + exception + '\'' +
                     '}';
@@ -168,7 +182,7 @@ public abstract class Protocol {
         public String toString() {
             return "PingPong{" +
                     "originNodeId='" + getOriginNodeId() + '\'' +
-                    "time=" + time +
+                    ", time=" + time +
                     '}';
         }
 
@@ -213,7 +227,7 @@ public abstract class Protocol {
         public String toString() {
             return "Handshake{" +
                     "originNodeId='" + getOriginNodeId() + '\'' +
-                    "ip='" + ip + '\'' +
+                    ", ip='" + ip + '\'' +
                     ", port='" + port + '\'' +
                     '}';
         }

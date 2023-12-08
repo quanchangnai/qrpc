@@ -3,10 +3,9 @@ package quan.rpc;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 
 import java.util.Map;
+import java.util.SortedSet;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
@@ -18,17 +17,21 @@ public class ThreadPoolWorker extends Worker {
 
     private final AtomicInteger nextCallId = new AtomicInteger(1);
 
-    private final Lock delayedResultsLock = new ReentrantLock();
-
-    private final Lock sortedPromisesLock = new ReentrantLock();
-
     protected ThreadPoolWorker(Node node) {
         super(node);
     }
 
     @Override
     protected <K, V> Map<K, V> newMap() {
+        //保证线程安全
         return new ConcurrentHashMap<>();
+    }
+
+    @Override
+    @SuppressWarnings("SortedCollectionWithNonComparableKeys")
+    protected <E> SortedSet<E> newSet() {
+        //保证线程安全
+        return new ConcurrentSkipListSet<>();
     }
 
     protected ExecutorService newExecutor() {
@@ -47,7 +50,6 @@ public class ThreadPoolWorker extends Worker {
         } else {
             return new Executor(config.getThreadPoolWorkerCorePoolSize(), config.getThreadPoolWorkerMaxPoolSize(), config.getThreadPoolWorkerPoolSizeFactor(), threadFactory);
         }
-
     }
 
     @Override
@@ -75,74 +77,6 @@ public class ThreadPoolWorker extends Worker {
                 super.updateService(service);
             }
         });
-    }
-
-    @Override
-    protected void addSortedPromise(Promise<Object> promise) {
-        try {
-            sortedPromisesLock.lock();
-            super.addSortedPromise(promise);
-        } finally {
-            sortedPromisesLock.unlock();
-        }
-    }
-
-    @Override
-    protected void removeSortedPromise(Promise<Object> promise) {
-        try {
-            sortedPromisesLock.lock();
-            super.removeSortedPromise(promise);
-        } finally {
-            sortedPromisesLock.unlock();
-        }
-    }
-
-    @Override
-    protected void expirePromises() {
-        try {
-            sortedPromisesLock.lock();
-            super.expirePromises();
-        } finally {
-            sortedPromisesLock.unlock();
-        }
-    }
-
-
-    @Override
-    protected void expirePromise(Promise<Object> promise) {
-        execute(() -> super.expirePromise(promise));
-    }
-
-
-    @Override
-    protected void addDelayedResult(DelayedResult<Object> delayedResult) {
-        try {
-            delayedResultsLock.lock();
-            super.addDelayedResult(delayedResult);
-        } finally {
-            delayedResultsLock.unlock();
-        }
-    }
-
-
-    @Override
-    protected boolean containsDelayedResult(DelayedResult<Object> delayedResult) {
-        try {
-            delayedResultsLock.lock();
-            return super.containsDelayedResult(delayedResult);
-        } finally {
-            delayedResultsLock.unlock();
-        }
-    }
-
-    @Override
-    protected void expireDelayedResults() {
-        try {
-            delayedResultsLock.lock();
-            super.expireDelayedResults();
-        } finally {
-            delayedResultsLock.unlock();
-        }
     }
 
     @Override

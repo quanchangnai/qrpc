@@ -15,6 +15,8 @@ public class CallException extends RuntimeException {
 
     private boolean timeout;
 
+    private String message;
+
     public CallException() {
     }
 
@@ -45,31 +47,31 @@ public class CallException extends RuntimeException {
 
     @Override
     public String getMessage() {
-        String message = "调用";
-
-        if (callId > 0 && signature != null) {
-            message = String.format("[%s]方法[%s]", callId, signature);
+        if (message != null) {
+            return message;
         }
+
+        message = "调用方法";
 
         if (timeout) {
             message += "超时";
         } else {
-            message += "返回异常";
+            message += "异常返回";
+        }
+
+        if (callId > 0 && signature != null) {
+            message += ",callId:" + callId;
+        }
+
+        if (signature != null) {
+            message += ",方法:" + signature;
         }
 
         if (!StringUtils.isBlank(super.getMessage())) {
-            message += ":" + super.getMessage();
+            message += ",原因:" + super.getMessage();
         }
 
         return message;
-    }
-
-    public static CallException create(String exceptionStr) {
-        if (exceptionStr != null) {
-            return new CallException(exceptionStr);
-        } else {
-            return null;
-        }
     }
 
 }

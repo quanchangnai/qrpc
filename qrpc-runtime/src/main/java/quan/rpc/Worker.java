@@ -40,11 +40,12 @@ public class Worker implements Executor {
 
     private final Map<Long, Promise<Object>> mappedPromises = newMap();
 
-    private final SortedSet<Promise<Object>> sortedPromises = new TreeSet<>();
+    private final SortedSet<Promise<Object>> sortedPromises = newSet();
 
-    private final SortedSet<DelayedResult<Object>> delayedResults = new TreeSet<>();
+    private final SortedSet<DelayedResult<Object>> delayedResults = newSet();
 
     private final TimerQueue timerQueue = new TimerQueue(this);
+
 
     private int nextCallId = 1;
 
@@ -64,6 +65,11 @@ public class Worker implements Executor {
 
     protected <K, V> Map<K, V> newMap() {
         return new HashMap<>();
+    }
+
+    @SuppressWarnings("SortedCollectionWithNonComparableKeys")
+    protected <E> SortedSet<E> newSet() {
+        return new TreeSet<>();
     }
 
     public static Worker current() {
@@ -175,23 +181,6 @@ public class Worker implements Executor {
         return thread;
     }
 
-    protected void addSortedPromise(Promise<Object> promise) {
-        sortedPromises.add(promise);
-    }
-
-    protected void removeSortedPromise(Promise<Object> promise) {
-        sortedPromises.remove(promise);
-    }
-
-    protected void addDelayedResult(DelayedResult<Object> delayedResult) {
-        delayedResults.add(delayedResult);
-    }
-
-    protected boolean containsDelayedResult(DelayedResult<Object> delayedResult) {
-        return delayedResults.contains(delayedResult);
-    }
-
-
     @Override
     public void execute(Runnable task) {
         if (executor == null) {
@@ -263,9 +252,9 @@ public class Worker implements Executor {
                 for (StackTraceElement traceElement : thread.getStackTrace()) {
                     sb.append("\tat ").append(traceElement).append("\n");
                 }
-                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，线程[{}]可能执行了耗时任务\n{}", id, updateIntervalTime, thread, sb);
+                logger.error("线程工作者[{}]帧率过低,距离上次刷帧已经过了{}ms,线程[{}]可能执行了耗时任务\n{}", id, updateIntervalTime, thread, sb);
             } else {
-                logger.error("线程工作者[{}]帧率过低，距离上次刷帧已经过了{}ms，可能执行了耗时任务", id, updateIntervalTime);
+                logger.error("线程工作者[{}]帧率过低,距离上次刷帧已经过了{}ms,可能执行了耗时任务", id, updateIntervalTime);
             }
         }
     }
@@ -314,12 +303,8 @@ public class Worker implements Executor {
             }
             iterator.remove();
             mappedPromises.remove(promise.getCallId());
-            expirePromise(promise);
+            promise.expire();
         }
-    }
-
-    protected void expirePromise(Promise<Object> promise) {
-        promise.onExpired();
     }
 
     protected void expireDelayedResults() {
@@ -334,7 +319,7 @@ public class Worker implements Executor {
                 return;
             }
             iterator.remove();
-            expirePromise(delayedResult);
+            delayedResult.expire();
         }
     }
 
@@ -377,17 +362,17 @@ public class Worker implements Executor {
     protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int securityModifier, int expiredTime, Object... params) {
         long callId = (long) this.id << 32 | getCallId();
 
-        Promise<Object> promise = new Promise<>(callId, signature, this);
-        promise.setExpiredTime(expiredTime);
-        mappedPromises.put(promise.getCallId(), promise);
-        addSortedPromise(promise);
+        Promise<Object> promise = new Promise<>(this, callId, signature);
+        promise.calcExpiredTime(expiredTime);
+        mappedPromises.put(callId, promise);
+        sortedPromises.add(promise);
 
-        sendRequest(proxy, promise, methodId, securityModifier, params);
+        sendRequest(proxy, promise, methodId, expiredTime, securityModifier, params);
 
         return (Promise<R>) promise;
     }
 
-    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int securityModifier, Object... params) {
+    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int expiredTime, int securityModifier, Object... params) {
         int targetNodeId;
         Object serviceId;
 
@@ -400,19 +385,22 @@ public class Worker implements Executor {
         }
 
         if (promise.isExpired()) {
-            logger.error("发送RPC请求，已过期无需发送，targetNodeId:{}，serviceId:{}", targetNodeId, serviceId);
+            logger.error("发送RPC请求,已过期无需发送,targetNodeId:{},serviceId:{}", targetNodeId, serviceId);
             return;
         }
 
         if (targetNodeId == -1) {
             //延迟重新发送
-            newTimer(() -> sendRequest(proxy, promise, methodId, securityModifier, params), getNode().getConfig().getUpdateInterval());
+            newTimer(() -> sendRequest(proxy, promise, methodId, expiredTime, securityModifier, params), getNode().getConfig().getUpdateInterval());
             return;
         }
 
         try {
             makeParamsSafe(targetNodeId, securityModifier, params);
             Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
+            if (expiredTime > 0) {
+                request.setExpiredTime(promise.getExpiredTime());
+            }
             node.sendRequest(targetNodeId, request, securityModifier);
         } catch (Exception e) {
             handleSendRequestError(promise, e);
@@ -421,7 +409,7 @@ public class Worker implements Executor {
 
     private void handleSendRequestError(Promise<Object> promise, Exception e) {
         mappedPromises.remove(promise.getCallId());
-        removeSortedPromise(promise);
+        sortedPromises.remove(promise);
         execute(() -> promise.setException(e));
     }
 
@@ -435,11 +423,7 @@ public class Worker implements Executor {
      * @param securityModifier 1:标记所有参数都是安全的，参考 {@link Endpoint#safeArgs()}
      */
     private void makeParamsSafe(int targetNodeId, int securityModifier, Object[] params) {
-        if (targetNodeId != 0 && targetNodeId != this.node.getId()) {
-            return;
-        }
-
-        if (params == null || (securityModifier & 0b01) == 0b01) {
+        if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || (securityModifier & 0b01) == 0b01) {
             return;
         }
 
@@ -457,7 +441,7 @@ public class Worker implements Executor {
      * @param securityModifier 2:标记返回结果是安全的，参考 {@link Endpoint#safeReturn()}
      */
     private Object makeResultSafe(int originNodeId, int securityModifier, Object result) {
-        if (originNodeId != this.node.getId()) {
+        if (result == null || originNodeId != this.node.getId()) {
             return result;
         }
 
@@ -473,45 +457,49 @@ public class Worker implements Executor {
         long callId = request.getCallId();
         Object serviceId = request.getServiceId();
         Object result = null;
-        String exception = null;
+        String exceptionStr = null;
 
         Service<?> service = services.get(serviceId);
         if (service == null) {
-            logger.error("处理RPC请求，服务[{}]不存在，originNodeId:{}，callId:{}", serviceId, originNodeId, callId);
+            logger.error("处理RPC请求,服务[{}]不存在,originNodeId:{},callId:{}", serviceId, originNodeId, callId);
             return;
         }
 
         try {
             result = service.call(request.getMethodId(), request.getParams());
         } catch (Throwable e) {
-            exception = e.toString();
-            logger.error("处理RPC请求，方法执行异常，originNodeId:{}，callId:{}", originNodeId, callId, e);
+            exceptionStr = e.toString();
+            logger.error("处理RPC请求,方法执行异常,callId:{},originNodeId:{}", callId, originNodeId, e);
         }
 
         if (result instanceof DelayedResult) {
             DelayedResult<?> delayedResult = (DelayedResult<?>) result;
-            if (!delayedResult.isFinished()) {
-                delayedResult.setCallId(callId);
-                delayedResult.setOriginNodeId(originNodeId);
-                delayedResult.setSecurityModifier(securityModifier);
-                delayedResult.setHandler();
-                return;
-            } else {
-                exception = delayedResult.getExceptionStr();
-                if (exception == null) {
+            delayedResult.setCallId(callId);
+            delayedResult.setOriginNodeId(originNodeId);
+            delayedResult.setSecurityModifier(securityModifier);
+
+            if (delayedResult.isDone()) {
+                delayedResults.remove(delayedResult);
+                exceptionStr = delayedResult.getExceptionStr();
+                if (exceptionStr == null) {
                     result = makeResultSafe(originNodeId, securityModifier, delayedResult.getResult());
                 }
+            } else {
+                if (request.getExpiredTime() > 0) {
+                    delayedResult.setExpiredTime(request.getExpiredTime());
+                }
+                delayedResult.then((r, e) -> handleDelayedResult(delayedResult));
+                return;
             }
         }
 
-        Response response = new Response(node.getId(), callId, result, exception);
+        Response response = new Response(node.getId(), callId, result, exceptionStr);
         node.sendResponse(originNodeId, response);
     }
 
     @SuppressWarnings("rawtypes")
     protected void handleDelayedResult(DelayedResult delayedResult) {
-        //noinspection unchecked
-        if (!containsDelayedResult(delayedResult)) {
+        if (!delayedResults.remove(delayedResult)) {
             return;
         }
 
@@ -524,9 +512,14 @@ public class Worker implements Executor {
     protected void handleResponse(Response response) {
         long callId = response.getCallId();
         if (!mappedPromises.containsKey(callId)) {
-            logger.error("处理RPC响应，调用[{}]不存在", callId);
+            logger.error("处理RPC响应,调用[{}]不存在,originNodeId：{}", callId, response.getOriginNodeId());
         } else {
-            handlePromise(callId, CallException.create(response.getException()), response.getResult());
+            String exceptionStr = response.getException();
+            if (exceptionStr == null) {
+                handlePromise(callId, null, response.getResult());
+            } else {
+                handlePromise(callId, new CallException(exceptionStr), null);
+            }
         }
     }
 
@@ -539,7 +532,7 @@ public class Worker implements Executor {
             return;
         }
 
-        removeSortedPromise(promise);
+        sortedPromises.remove(promise);
 
         if (exception != null) {
             promise.setException(exception);
@@ -551,7 +544,7 @@ public class Worker implements Executor {
     public <R> DelayedResult<R> newDelayedResult() {
         DelayedResult<R> delayedResult = new DelayedResult<>(this);
         //noinspection unchecked
-        addDelayedResult((DelayedResult<Object>) delayedResult);
+        delayedResults.add((DelayedResult<Object>) delayedResult);
         return delayedResult;
     }
 

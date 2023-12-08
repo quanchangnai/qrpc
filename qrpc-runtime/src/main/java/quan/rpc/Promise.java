@@ -4,6 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -12,11 +16,13 @@ import java.util.function.Function;
  *
  * @author quanchangnai
  */
-@SuppressWarnings({"unchecked", "rawtypes"})
 public class Promise<R> implements Comparable<Promise<?>> {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
+    /**
+     * 调用ID
+     */
     private long callId;
 
     /**
@@ -26,29 +32,29 @@ public class Promise<R> implements Comparable<Promise<?>> {
 
     protected final Worker worker;
 
+    /**
+     * 过期时间
+     */
     private long expiredTime;
 
-    private R result;
-
-    protected Exception exception;
-
-    private Object resultHandler;
-
-    private Object exceptionHandler;
-
-    private Promise helpPromise;
-
-    private boolean finished;
+    private final CompletableFuture<R> future;
 
     protected Promise(Worker worker) {
-        this(0, null, worker);
+        this(worker, 0, null);
     }
 
-    protected Promise(long callId, String signature, Worker worker) {
+    protected Promise(Worker worker, CompletableFuture<R> future) {
+        this.worker = Objects.requireNonNull(worker);
+        this.future = future;
+        this.calcExpiredTime(0);
+    }
+
+    protected Promise(Worker worker, long callId, String signature) {
+        this.worker = Objects.requireNonNull(worker);
         this.callId = callId;
         this.signature = signature;
-        this.worker = worker;
-        setExpiredTime(0);
+        this.future = new CompletableFuture<>();
+        this.calcExpiredTime(0);
     }
 
     protected long getCallId() {
@@ -67,62 +73,16 @@ public class Promise<R> implements Comparable<Promise<?>> {
         return expiredTime;
     }
 
-    protected boolean isFinished() {
-        return finished;
-    }
-
-    protected Promise getHelpPromise() {
-        if (helpPromise == null) {
-            helpPromise = new Promise(worker);
-        }
-        return helpPromise;
-    }
-
-    protected void setResult(R result) {
-        if (this.finished) {
-            return;
-        }
-
-        this.finished = true;
-        this.result = result;
-
-        if (resultHandler == null) {
-            return;
-        }
-
-        handle(resultHandler, result);
-    }
-
-    protected R getResult() {
-        return result;
-    }
-
-    protected void setException(Exception exception) {
-        if (this.finished) {
-            return;
-        }
-
-        this.finished = true;
-        this.exception = exception;
-
-        if (exception instanceof CallException) {
-            CallException callException = (CallException) exception;
-            callException.setCallId(callId);
-            callException.setSignature(signature);
-        }
-
-        if (exceptionHandler == null) {
-            logger.error("", exception);
-            return;
-        }
-
-        handle(exceptionHandler, exception);
+    public void setExpiredTime(long expiredTime) {
+        this.expiredTime = expiredTime;
     }
 
     /**
-     * 设置过期时间(秒)
+     * 计算过期时间
+     *
+     * @param expiredTime 距离过期时间点的秒数
      */
-    protected void setExpiredTime(long expiredTime) {
+    protected void calcExpiredTime(int expiredTime) {
         if (expiredTime <= 0) {
             expiredTime = worker.getNode().getConfig().getCallTtl();
         } else {
@@ -132,92 +92,210 @@ public class Promise<R> implements Comparable<Promise<?>> {
         this.expiredTime = System.currentTimeMillis() + expiredTime;
     }
 
-    /**
-     * 是否过期
-     */
+    protected void setResult(R r) {
+        future.complete(r);
+    }
+
+    public R getResult() {
+        return future.getNow(null);
+    }
+
+    protected void setException(Throwable e) {
+        Objects.requireNonNull(e);
+
+        if (e instanceof CallException) {
+            CallException callException = (CallException) e;
+            callException.setCallId(callId);
+            callException.setSignature(signature);
+        }
+
+        future.completeExceptionally(e);
+    }
+
+    protected Throwable getException() {
+        if (future.isCompletedExceptionally()) {
+            try {
+                future.get();
+            } catch (Throwable e) {
+                return realException(e);
+            }
+        }
+
+        return null;
+    }
+
+    protected void expire() {
+        if (!isDone()) {
+            CallException e = new CallException(null, true);
+            setException(e);
+            logger.error(e.getMessage());
+        }
+    }
+
     protected boolean isExpired() {
         return System.currentTimeMillis() > expiredTime;
     }
 
-    protected void onExpired() {
-        if (!finished) {
-            setException(new CallException(null, true));
+    public boolean isDone() {
+        return future.isDone();
+    }
+
+    public boolean isOK() {
+        return future.isDone() && !future.isCancelled() && !future.isCompletedExceptionally();
+    }
+
+    public boolean isFailed() {
+        return future.isCompletedExceptionally();
+    }
+
+    public static Promise<Void> allOf(Promise<?>... promises) {
+        return new Promise<>(Worker.current(), CompletableFuture.allOf(toFutures(promises)));
+    }
+
+    public static Promise<Object> anyOf(Promise<?>... promises) {
+        return new Promise<>(Worker.current(), CompletableFuture.anyOf(toFutures(promises)));
+    }
+
+    private static CompletableFuture<?>[] toFutures(Promise<?>... promises) {
+        CompletableFuture<?>[] futures = new CompletableFuture[promises.length];
+        for (int i = 0; i < promises.length; i++) {
+            futures[i] = promises[i].future;
         }
+        return futures;
     }
 
-    private void delegate(Promise promise) {
-        promise.callId = this.callId;
-        promise.signature = this.signature;
-        promise.expiredTime = this.expiredTime;
-        this.then(promise::setResult);
-        this.except(promise::setException);
+    /**
+     * 设置异步调用正常返回时的处理器
+     *
+     * @param handler 不关心结果的处理器
+     * @return 一个新的无结果的Promise，用于监听异常情况
+     */
+    public Promise<Void> then(Runnable handler) {
+        return new Promise<>(worker, future.thenRunAsync(handler, worker));
     }
 
-    private void handle(Object handler, Object result) {
-        try {
-            if (handler instanceof Consumer) {
-                ((Consumer) handler).accept(result);
-            } else {
-                Promise<?> handlerPromise = (Promise<?>) ((Function) handler).apply(result);
-                if (handlerPromise != null) {
-                    handlerPromise.delegate(helpPromise);
-                }
+    /**
+     * 设置异步调用正常返回时的处理器
+     *
+     * @param handler 结果处理器
+     * @return 一个新的无结果的Promise，用于监听异常情况
+     */
+    public Promise<Void> then(Consumer<? super R> handler) {
+        return new Promise<>(worker, future.thenAcceptAsync(handler, worker));
+    }
+
+    /**
+     * 设置异步调用正常返回时的处理器
+     *
+     * @param handler 结果处理器，处理结果并返回另一个带结果的Promise
+     * @return 一个新的Promise，其结果和handler返回的Promise一样
+     */
+    public <U> Promise<U> then(Function<? super R, ? extends Promise<U>> handler) {
+        return new Promise<>(worker, future.thenComposeAsync(r -> {
+            Promise<U> p = handler.apply(r);
+            return p == null ? null : p.future;
+        }, worker));
+    }
+
+    /**
+     * 设置异步调用正常或异常返回时的处理器
+     *
+     * @param handler 处理器
+     * @return 一个新的无结果的Promise，用于监听handler的执行情况
+     */
+    public Promise<Void> then(BiConsumer<? super R, ? super Throwable> handler) {
+        Promise<Void> p = new Promise<>(worker);
+
+        future.whenCompleteAsync((r, e1) -> {
+            try {
+                handler.accept(r, realException(e1));
+                p.future.complete(null);
+            } catch (Throwable e2) {
+                p.future.completeExceptionally(e2);
             }
-        } catch (Exception e) {
-            logger.error("", e);
-        }
-    }
+        }, worker);
 
-    private void checkHandler(Object oldHandler, Object newHandler) {
-        Objects.requireNonNull(newHandler, "参数[handler]不能为空");
-        if (oldHandler != null) {
-            throw new IllegalStateException("参数[handler]不能重复设置");
-        }
-    }
-
-    /**
-     * 设置异步调用成功返回时的处理器
-     */
-    public Promise<R> then(Consumer<R> handler) {
-        checkHandler(this.resultHandler, handler);
-        this.resultHandler = handler;
-        return this;
-    }
-
-    /**
-     * 设置异步调用成功返回时的处理器
-     *
-     * @param handler handler执行逻辑可能还会调用远程[方法2]，此时handler可以返回[方法2]的结果Promise&lt;R2&gt;
-     * @param <R2>    [方法2]的真实返回值类型
-     * @return Promise&lt;R2&gt;,可以监听[方法2]的调用结果
-     */
-    public <R2> Promise<R2> then(Function<R, Promise<R2>> handler) {
-        checkHandler(this.resultHandler, handler);
-        this.resultHandler = handler;
-        return getHelpPromise();
-    }
-
-    /**
-     * 设置异步调用异常返回时的处理器
-     */
-    public void except(Consumer<Exception> handler) {
-        checkHandler(this.exceptionHandler, handler);
-        this.exceptionHandler = handler;
+        return p;
     }
 
     /**
      * 设置异步调用异常返回时的处理器
      *
-     * @see #then(Function)
+     * @param handler 异常处理器
+     * @return 一个新的无结果的Promise，用于监听handler的执行情况
      */
-    public <R2> Promise<R2> except(Function<Exception, Promise<R2>> handler) {
-        checkHandler(this.exceptionHandler, handler);
-        this.exceptionHandler = handler;
-        return getHelpPromise();
+    public Promise<Void> except(Consumer<? super Throwable> handler) {
+        Promise<Void> p = new Promise<>(worker);
+
+        future.whenCompleteAsync((r, e1) -> {
+            if (e1 == null) {
+                return;
+            }
+            try {
+                handler.accept(realException(e1));
+                p.future.complete(null);
+            } catch (Throwable e2) {
+                p.future.completeExceptionally(e2);
+            }
+        }, worker);
+
+        return p;
+    }
+
+    /**
+     * 设置异步调用异常返回时的处理器
+     *
+     * @param handler 异常处理器，处理异常并返回另一个带结果的Promise
+     * @return 一个新的Promise，其结果和handler返回的Promise一样
+     */
+    public <U> Promise<U> except(Function<? super Throwable, ? extends Promise<U>> handler) {
+        Promise<U> p1 = new Promise<>(worker);
+
+        future.whenCompleteAsync((r, e1) -> {
+            if (e1 == null) {
+                return;
+            }
+
+            Promise<U> p2;
+
+            try {
+                p2 = handler.apply(realException(e1));
+            } catch (Throwable e2) {
+                p1.future.completeExceptionally(e2);
+                return;
+            }
+
+            if (p2 == null) {
+                p1.future.complete(null);
+            } else
+                p2.future.whenComplete((u, e3) -> {
+                    if (e3 != null) {
+                        p1.future.completeExceptionally(e3);
+                    } else {
+                        p1.future.complete(u);
+                    }
+                });
+        }, worker);
+
+        return p1;
+    }
+
+    private static Throwable realException(Throwable e) {
+        while (e instanceof CompletionException || e instanceof ExecutionException) {
+            Throwable cause = e.getCause();
+            if (cause != null) {
+                e = cause;
+            } else {
+                break;
+            }
+        }
+
+        return e;
     }
 
     @Override
     public int compareTo(Promise<?> other) {
         return Long.compare(this.expiredTime, other.expiredTime);
     }
+
 }
