@@ -38,11 +38,11 @@ public class Worker implements Executor {
     //管理的所有服务，key:服务ID
     private final Map<Object, Service<?>> services = newMap();
 
-    private final Map<Long, Promise<Object>> mappedPromises = newMap();
+    private final Map<Long, Promise<?>> mappedPromises = newMap();
 
-    private final SortedSet<Promise<Object>> sortedPromises = newSet();
+    private final SortedSet<Promise<?>> sortedPromises = newSet();
 
-    private final SortedSet<DelayedResult<Object>> delayedResults = newSet();
+    private final SortedSet<DelayedResult<?>> delayedResults = newSet();
 
     private final TimerQueue timerQueue = new TimerQueue(this);
 
@@ -295,9 +295,9 @@ public class Worker implements Executor {
             return;
         }
 
-        Iterator<Promise<Object>> iterator = sortedPromises.iterator();
+        Iterator<Promise<?>> iterator = sortedPromises.iterator();
         while (iterator.hasNext()) {
-            Promise<Object> promise = iterator.next();
+            Promise<?> promise = iterator.next();
             if (!promise.isExpired()) {
                 return;
             }
@@ -312,9 +312,9 @@ public class Worker implements Executor {
             return;
         }
 
-        Iterator<DelayedResult<Object>> iterator = delayedResults.iterator();
+        Iterator<DelayedResult<?>> iterator = delayedResults.iterator();
         while (iterator.hasNext()) {
-            DelayedResult<Object> delayedResult = iterator.next();
+            DelayedResult<?> delayedResult = iterator.next();
             if (!delayedResult.isExpired()) {
                 return;
             }
@@ -487,6 +487,9 @@ public class Worker implements Executor {
             } else {
                 if (request.getExpiredTime() > 0) {
                     delayedResult.setExpiredTime(request.getExpiredTime());
+                    //更新基于过期时间的排序
+                    delayedResults.remove(delayedResult);
+                    delayedResults.add(delayedResult);
                 }
                 delayedResult.then((r, e) -> handleDelayedResult(delayedResult));
                 return;
@@ -524,7 +527,9 @@ public class Worker implements Executor {
     }
 
     protected void handlePromise(long callId, Exception exception, Object result) {
-        Promise<Object> promise = mappedPromises.remove(callId);
+        @SuppressWarnings("unchecked")
+        Promise<Object> promise = (Promise<Object>) mappedPromises.remove(callId);
+
         if (promise == null) {
             if (exception != null) {
                 logger.error("调用[{}]方法出错", callId, exception);
@@ -543,8 +548,7 @@ public class Worker implements Executor {
 
     public <R> DelayedResult<R> newDelayedResult() {
         DelayedResult<R> delayedResult = new DelayedResult<>(this);
-        //noinspection unchecked
-        delayedResults.add((DelayedResult<Object>) delayedResult);
+        delayedResults.add(delayedResult);
         return delayedResult;
     }
 

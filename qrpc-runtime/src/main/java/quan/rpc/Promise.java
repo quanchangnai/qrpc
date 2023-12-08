@@ -69,11 +69,11 @@ public class Promise<R> implements Comparable<Promise<?>> {
         return worker;
     }
 
-    public long getExpiredTime() {
+    protected long getExpiredTime() {
         return expiredTime;
     }
 
-    public void setExpiredTime(long expiredTime) {
+    protected void setExpiredTime(long expiredTime) {
         this.expiredTime = expiredTime;
     }
 
