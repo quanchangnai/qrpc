@@ -13,6 +13,8 @@ import java.time.ZonedDateTime;
 import java.util.*;
 
 /**
+ * 定时器队列
+ *
  * @author quanchangnai
  */
 public class TimerQueue {
@@ -162,7 +164,7 @@ public class TimerQueue {
                 timerTask = timerTaskQueue.peek();
             }
         } catch (Exception e) {
-            logger.error("", e);
+            logger.error("定时任务执行出错", e);
         }
     }
 
@@ -234,7 +236,7 @@ public class TimerQueue {
             try {
                 task.run();
             } catch (Exception e) {
-                logger.error("", e);
+                logger.error("定时任务执行出错", e);
             }
         }
 

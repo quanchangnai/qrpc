@@ -142,7 +142,7 @@ public class Node {
         try {
             workers.values().forEach(Worker::update);
         } catch (Exception e) {
-            logger.error("", e);
+            logger.error("节点[]刷帧出错", id, e);
         }
 
     }

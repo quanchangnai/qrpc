@@ -242,7 +242,7 @@ public class NettyConnector extends Connector {
 
                                 @Override
                                 public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                    logger.error("", cause);
+                                    logger.error("网络连接异常", cause);
                                 }
 
                             });
@@ -328,7 +328,7 @@ public class NettyConnector extends Connector {
 
                                 @Override
                                 public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                    logger.error("", cause);
+                                    logger.error("网络连接异常", cause);
                                 }
 
                             });
@@ -395,12 +395,8 @@ public class NettyConnector extends Connector {
         }
 
         protected void update() {
-            try {
-                checkSuspended();
-                sendPingPong();
-            } catch (Exception e) {
-                logger.error("", e);
-            }
+            checkSuspended();
+            sendPingPong();
         }
 
         protected void checkSuspended() {
@@ -422,8 +418,12 @@ public class NettyConnector extends Connector {
 
             long currentTime = System.currentTimeMillis();
             if (lastSendPingPongTime + connector.getPingPongInterval() < currentTime) {
-                sendProtocol(new PingPong(connector.node.getId(), currentTime));
                 lastSendPingPongTime = currentTime;
+                try {
+                    sendProtocol(new PingPong(connector.node.getId(), currentTime));
+                } catch (Exception e) {
+                    logger.error("发送协议出错", e);
+                }
             }
         }
 
