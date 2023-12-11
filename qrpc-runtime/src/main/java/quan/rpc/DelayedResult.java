@@ -33,20 +33,24 @@ public final class DelayedResult<R> extends Promise<R> {
     }
 
     @Override
-    public void setResult(R result) {
+    public void setResult(R r) {
         if (this.isDone()) {
-            throw new IllegalStateException("不能重复设置延迟结果");
+            throw new IllegalStateException("不能重复设置");
+        } else if (Worker.current() == worker) {
+            super.setResult(r);
         } else {
-            super.setResult(result);
+            worker.execute(() -> super.setResult(r));
         }
     }
 
     @Override
     public void setException(Throwable e) {
         if (this.isDone()) {
-            throw new IllegalStateException("不能重复设置延迟结果");
-        } else {
+            throw new IllegalStateException("不能重复设置");
+        } else if (Worker.current() == worker) {
             super.setException(e);
+        } else {
+            worker.execute(() -> super.setException(e));
         }
     }
 

@@ -72,7 +72,7 @@ public class TestService1 extends Service<Integer> {
         long now = System.currentTimeMillis();
 
         synchronized (this) {
-            if (now - lastTime < 3000) {
+            if (now - lastTime < 5000) {
                 return;
             }
             lastTime = now;
@@ -94,29 +94,23 @@ public class TestService1 extends Service<Integer> {
             return roleService2Proxy.login3(a, b + 2, null);//result3
         }).then(result3 -> {
             logger.info("TestService1 call RoleService1.login3,result3:{}", result3);
-        }).except(e -> {
-            logger.error("RoleService1", e);
+        }).exceptionally(e -> {
+            logger.error(" TestService1 call RoleService1 error", e);
         });
 
         Promise<Integer> countPromise = roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664)));
-        countPromise.then(c -> {
-            logger.info("1:roleService1Proxy.count()={}", c);
-        }).except(e -> {
-            logger.error("2:roleService1Proxy.count() error", e);
-            return roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664, 4)));
+        countPromise.then(r -> {
+            logger.info("1:roleService1Proxy.count()={}", r);
+        }).completely(()->{
+            logger.error("3:roleService1Proxy.count()");
         }).then(r -> {
             logger.info("4:roleService1Proxy.count()={}", r);
-        }).except(e -> {
-            logger.error("3:roleService1Proxy.count() error", e);
+        }).then(r -> {
+            logger.info("5:roleService1Proxy.count()={}", r);
+        }).exceptionally(e -> {
+            logger.error("6:roleService1Proxy.count()" ,e);
         });
 
-        countPromise.then(c -> {
-            logger.info("5:roleService1Proxy.count()={}", c);
-        });
-
-        countPromise.except(e -> {
-            logger.error("6:roleService1Proxy.count() error", e);
-        });
     }
 
 

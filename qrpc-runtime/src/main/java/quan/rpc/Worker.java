@@ -362,8 +362,11 @@ public class Worker implements Executor {
     protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int securityModifier, int expiredTime, Object... params) {
         long callId = (long) this.id << 32 | getCallId();
 
-        Promise<Object> promise = new Promise<>(this, callId, signature);
+        Promise<Object> promise = new Promise<>(this);
+        promise.setCallId(callId);
+        promise.setSignature(signature);
         promise.calcExpiredTime(expiredTime);
+
         mappedPromises.put(callId, promise);
         sortedPromises.add(promise);
 
@@ -396,7 +399,7 @@ public class Worker implements Executor {
         }
 
         try {
-            makeParamsSafe(targetNodeId, securityModifier, params);
+            makeSafeParams(targetNodeId, securityModifier, params);
             Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
             if (expiredTime > 0) {
                 request.setExpiredTime(promise.getExpiredTime());
@@ -422,7 +425,7 @@ public class Worker implements Executor {
      *
      * @param securityModifier 1:标记所有参数都是安全的，参考 {@link Endpoint#safeArgs()}
      */
-    private void makeParamsSafe(int targetNodeId, int securityModifier, Object[] params) {
+    private void makeSafeParams(int targetNodeId, int securityModifier, Object[] params) {
         if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || (securityModifier & 0b01) == 0b01) {
             return;
         }
@@ -440,7 +443,7 @@ public class Worker implements Executor {
      *
      * @param securityModifier 2:标记返回结果是安全的，参考 {@link Endpoint#safeReturn()}
      */
-    private Object makeResultSafe(int originNodeId, int securityModifier, Object result) {
+    private Object makeSafeResult(int originNodeId, int securityModifier, Object result) {
         if (result == null || originNodeId != this.node.getId()) {
             return result;
         }
@@ -480,10 +483,8 @@ public class Worker implements Executor {
 
             if (delayedResult.isDone()) {
                 delayedResults.remove(delayedResult);
+                result = makeSafeResult(originNodeId, securityModifier, delayedResult.getResult());
                 exceptionStr = delayedResult.getExceptionStr();
-                if (exceptionStr == null) {
-                    result = makeResultSafe(originNodeId, securityModifier, delayedResult.getResult());
-                }
             } else {
                 if (request.getExpiredTime() > 0) {
                     delayedResult.setExpiredTime(request.getExpiredTime());
@@ -491,7 +492,7 @@ public class Worker implements Executor {
                     delayedResults.remove(delayedResult);
                     delayedResults.add(delayedResult);
                 }
-                delayedResult.then((r, e) -> handleDelayedResult(delayedResult));
+                delayedResult.completely0(() -> handleDelayedResult(delayedResult));
                 return;
             }
         }
@@ -507,7 +508,8 @@ public class Worker implements Executor {
         }
 
         int originNodeId = delayedResult.getOriginNodeId();
-        Object result = makeResultSafe(originNodeId, delayedResult.getSecurityModifier(), delayedResult.getResult());
+        Object result = makeSafeResult(originNodeId, delayedResult.getSecurityModifier(), delayedResult.getResult());
+
         Response response = new Response(node.getId(), delayedResult.getCallId(), result, delayedResult.getExceptionStr());
         node.sendResponse(originNodeId, response);
     }
@@ -550,6 +552,13 @@ public class Worker implements Executor {
         DelayedResult<R> delayedResult = new DelayedResult<>(this);
         delayedResults.add(delayedResult);
         return delayedResult;
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "{" +
+                "id=" + id +
+                '}';
     }
 
 }
