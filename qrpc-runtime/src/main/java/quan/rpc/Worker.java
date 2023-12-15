@@ -459,6 +459,7 @@ public class Worker implements Executor {
         int originNodeId = request.getOriginNodeId();
         long callId = request.getCallId();
         Object serviceId = request.getServiceId();
+
         Object result = null;
         String exceptionStr = null;
 
@@ -477,22 +478,24 @@ public class Worker implements Executor {
 
         if (result instanceof DelayedResult) {
             DelayedResult<?> delayedResult = (DelayedResult<?>) result;
-            delayedResult.setCallId(callId);
-            delayedResult.setOriginNodeId(originNodeId);
-            delayedResult.setSecurityModifier(securityModifier);
-
             if (delayedResult.isDone()) {
                 delayedResults.remove(delayedResult);
-                result = makeSafeResult(originNodeId, securityModifier, delayedResult.getResult());
-                exceptionStr = delayedResult.getExceptionStr();
+            } else if (request.getExpiredTime() > 0) {
+                delayedResult.setExpiredTime(request.getExpiredTime());
+                //更新基于过期时间的排序
+                delayedResults.remove(delayedResult);
+                delayedResults.add(delayedResult);
+            }
+        }
+
+        if (result instanceof Promise) {
+            Promise<?> promise = (Promise<?>) result;
+            if (promise.isOK()) {
+                result = makeSafeResult(originNodeId, securityModifier, promise.getResult());
+            } else if (promise.isFailed()) {
+                exceptionStr = promise.getExceptionStr();
             } else {
-                if (request.getExpiredTime() > 0) {
-                    delayedResult.setExpiredTime(request.getExpiredTime());
-                    //更新基于过期时间的排序
-                    delayedResults.remove(delayedResult);
-                    delayedResults.add(delayedResult);
-                }
-                delayedResult.completely0(() -> handleDelayedResult(delayedResult));
+                promise.completely0(() -> handleAsyncResult(promise, originNodeId, callId, securityModifier));
                 return;
             }
         }
@@ -501,16 +504,16 @@ public class Worker implements Executor {
         node.sendResponse(originNodeId, response);
     }
 
-    @SuppressWarnings("rawtypes")
-    protected void handleDelayedResult(DelayedResult delayedResult) {
-        if (!delayedResults.remove(delayedResult)) {
-            return;
+    protected void handleAsyncResult(Promise<?> promise, int originNodeId, long callId, int securityModifier) {
+        if (promise instanceof DelayedResult) {
+            if (!delayedResults.remove(promise)) {
+                return;
+            }
         }
 
-        int originNodeId = delayedResult.getOriginNodeId();
-        Object result = makeSafeResult(originNodeId, delayedResult.getSecurityModifier(), delayedResult.getResult());
+        Object result = makeSafeResult(originNodeId, securityModifier, promise.getResult());
+        Response response = new Response(node.getId(), callId, result, promise.getExceptionStr());
 
-        Response response = new Response(node.getId(), delayedResult.getCallId(), result, delayedResult.getExceptionStr());
         node.sendResponse(originNodeId, response);
     }
 

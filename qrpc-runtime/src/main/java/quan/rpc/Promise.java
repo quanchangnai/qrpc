@@ -138,7 +138,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     protected Throwable getException() {
-        if (future.isCompletedExceptionally()) {
+        if (isFailed()) {
             try {
                 future.get();
             } catch (Throwable e) {
@@ -147,6 +147,11 @@ public class Promise<R> implements Comparable<Promise<?>> {
         }
 
         return null;
+    }
+
+    protected String getExceptionStr() {
+        Throwable e = getException();
+        return e == null ? null : e.toString();
     }
 
     protected void expire() {
@@ -168,7 +173,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     public boolean isFailed() {
-        return future.isCompletedExceptionally();
+        return future.isCancelled() || future.isCompletedExceptionally();
     }
 
     public static Promise<Void> allOf(Promise<?>... promises) {

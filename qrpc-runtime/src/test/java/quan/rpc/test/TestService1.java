@@ -118,14 +118,14 @@ public class TestService1 extends Service<Integer> {
      * a+b
      */
     @Endpoint
-    public int add1(Integer a, Integer b) {
+    public Promise<Integer> add1(Integer a, Integer b) {
         int r = a + b;
         logger.info("Execute TestService1:{}.add1({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
         Promise<Integer> promise = testService2Proxy.add3(r, a);
         promise.then(r3 -> {
             logger.info("TestService1:{} call TestService2.add3({},{})={}", id, r, a, r3);
         });
-        return r;
+        return promise;
     }
 
     @Endpoint

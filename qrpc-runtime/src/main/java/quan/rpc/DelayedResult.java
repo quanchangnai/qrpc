@@ -7,29 +7,8 @@ package quan.rpc;
  */
 public final class DelayedResult<R> extends Promise<R> {
 
-    private int originNodeId;
-
-    //服务方法参数或返回结果的安全修饰符
-    private int securityModifier;
-
     DelayedResult(Worker worker) {
         super(worker);
-    }
-
-    int getOriginNodeId() {
-        return originNodeId;
-    }
-
-    void setOriginNodeId(int originNodeId) {
-        this.originNodeId = originNodeId;
-    }
-
-    int getSecurityModifier() {
-        return securityModifier;
-    }
-
-    void setSecurityModifier(int securityModifier) {
-        this.securityModifier = securityModifier;
     }
 
     @Override
@@ -52,11 +31,6 @@ public final class DelayedResult<R> extends Promise<R> {
         } else {
             worker.execute(() -> super.setException(e));
         }
-    }
-
-    String getExceptionStr() {
-        Throwable e = getException();
-        return e == null ? null : e.toString();
     }
 
 }
