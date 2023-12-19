@@ -3,6 +3,7 @@ package quan.rpc;
 import com.rabbitmq.client.*;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -143,7 +144,7 @@ public class RabbitConnector extends Connector {
                     Protocol protocol;
 
                     try {
-                        protocol = SerializeUtils.deserialize(body);
+                        protocol = decode(new ByteArrayInputStream(body));
                     } catch (Exception e) {
                         logger.error("反序列化协议失败", e);
                         return;
@@ -175,7 +176,7 @@ public class RabbitConnector extends Connector {
         //异步发送，防止阻塞线程工作者
         executor.execute(() -> {
             try {
-                byte[] bytes = SerializeUtils.serialize(protocol, true);
+                byte[] bytes = encode(protocol);
                 //exchange不存在时不会报错，会异步关闭channel
                 getChannel().basicPublish(exchangeName(remoteId), "", null, bytes);
             } catch (Exception e) {

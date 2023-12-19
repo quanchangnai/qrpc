@@ -30,7 +30,7 @@ public abstract class Protocol {
     /**
      * 调用请求协议
      */
-    public static class Request extends Protocol {
+    public final static class Request extends Protocol {
 
         /**
          * 调用ID
@@ -57,7 +57,7 @@ public abstract class Protocol {
          */
         private long expiredTime;
 
-        protected Request() {
+        public Request() {
         }
 
         public Request(int originNodeId, long callId, Object serviceId, int methodId, Object... params) {
@@ -109,7 +109,7 @@ public abstract class Protocol {
     /**
      * 调用响应协议
      */
-    public static class Response extends Protocol {
+    public final static class Response extends Protocol {
 
         /**
          * 调用ID
@@ -123,7 +123,7 @@ public abstract class Protocol {
 
         private String exception;
 
-        protected Response() {
+        public Response() {
         }
 
         public Response(int originNodeId, long callId, Object result, String exception) {
@@ -158,11 +158,11 @@ public abstract class Protocol {
     }
 
 
-    public static class PingPong extends Protocol {
+    public final static class PingPong extends Protocol {
 
         private long time;
 
-        protected PingPong() {
+        public PingPong() {
         }
 
         public PingPong(int originNodeId, long time) {
@@ -191,13 +191,13 @@ public abstract class Protocol {
     /**
      * 握手协议
      */
-    public static class Handshake extends Protocol {
+    public final static class Handshake extends Protocol {
 
         private String ip;
 
         private int port;
 
-        protected Handshake() {
+        public Handshake() {
         }
 
 
@@ -232,4 +232,5 @@ public abstract class Protocol {
                     '}';
         }
     }
+
 }

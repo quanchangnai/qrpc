@@ -140,7 +140,7 @@ public class NettyConnector extends Connector {
         ByteBuf byteBuf = context.alloc().buffer();
 
         try {
-            SerializeUtils.serialize(protocol, new ByteBufOutputStream(byteBuf), true);
+            encode(protocol, new ByteBufOutputStream(byteBuf));
         } catch (Exception e) {
             byteBuf.release();
             throw new RuntimeException("序列化协议失败", e);
@@ -222,7 +222,7 @@ public class NettyConnector extends Connector {
                                 protected void channelRead0(ChannelHandlerContext context, ByteBuf msg) {
                                     Protocol protocol;
                                     try {
-                                        protocol = SerializeUtils.deserialize(new ByteBufInputStream(msg), true);
+                                        protocol = connector.decode(new ByteBufInputStream(msg));
                                     } catch (Exception e) {
                                         logger.error("反序列化协议失败", e);
                                         return;
