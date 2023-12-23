@@ -6,6 +6,7 @@ import quan.rpc.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 测试服务2
@@ -85,9 +86,17 @@ public class TestService2 extends Service<Integer> {
     }
 
     @Endpoint
-    public <E> Integer size(List<? super Runnable> list) {
+    public <E> Integer size(Set<? super Runnable> set) {
+        logger.info("Execute TestService2:{}.size({}) at Worker:{}", id, set, this.getWorker().getId());
+        return set.size();
+    }
+
+    @Endpoint
+    public <E> Integer size(List<Integer> list) {
+        logger.info("Execute TestService2:{}.size({}) at Worker:{}", id, list, this.getWorker().getId());
         return list.size();
     }
+
 
     private void add() {
         logger.info("TestService2:{} call TestService1 at Worker:{}", this.id, this.getWorker().getId());

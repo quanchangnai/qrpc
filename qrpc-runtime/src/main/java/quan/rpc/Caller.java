@@ -11,4 +11,12 @@ public class Caller {
         throw new IllegalArgumentException(String.format("服务[%s(%s)]不存在方法:%d", service.getClass().getName(), service.getId(), methodId));
     }
 
+    public String getSignature(int methodId) {
+        return null;
+    }
+
+    public int getExpiredTime(int methodId) {
+        return 0;
+    }
+
 }

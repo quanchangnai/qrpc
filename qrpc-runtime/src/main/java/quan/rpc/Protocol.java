@@ -52,11 +52,6 @@ public abstract class Protocol {
          */
         private Object[] params;
 
-        /**
-         * 过期时间
-         */
-        private long expiredTime;
-
         public Request() {
         }
 
@@ -84,14 +79,6 @@ public abstract class Protocol {
             return params;
         }
 
-        public long getExpiredTime() {
-            return expiredTime;
-        }
-
-        public void setExpiredTime(long expiredTime) {
-            this.expiredTime = expiredTime;
-        }
-
         @Override
         public String toString() {
             return "Request{" +
@@ -99,7 +86,6 @@ public abstract class Protocol {
                     ", callId=" + callId +
                     ", serviceId=" + serviceId +
                     ", methodId=" + methodId +
-                    ", expiredTime=" + expiredTime +
                     ", params=" + Arrays.toString(params) +
                     '}';
         }
@@ -121,12 +107,15 @@ public abstract class Protocol {
          */
         private Object result;
 
-        private String exception;
+        /**
+         * 异常或者异常字符串
+         */
+        private Object exception;
 
         public Response() {
         }
 
-        public Response(int originNodeId, long callId, Object result, String exception) {
+        public Response(int originNodeId, long callId, Object result, Object exception) {
             super(originNodeId);
             this.callId = callId;
             this.result = result;
@@ -141,7 +130,7 @@ public abstract class Protocol {
             return result;
         }
 
-        public String getException() {
+        public Object getException() {
             return exception;
         }
 

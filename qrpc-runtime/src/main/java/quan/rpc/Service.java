@@ -32,7 +32,7 @@ public abstract class Service<I> implements Executor {
      */
     public abstract I getId();
 
-    void setWorker(Worker worker) {
+    final void setWorker(Worker worker) {
         this.worker = worker;
         if (worker != null) {
             timerQueue = new TimerQueue(worker);
@@ -43,12 +43,13 @@ public abstract class Service<I> implements Executor {
         return worker;
     }
 
-    final Object call(int methodId, Object... params) throws Throwable {
+    final Caller getCaller() throws Exception {
         if (caller == null) {
             Class<?> callerClass = Class.forName(getClass().getName() + "Caller");
-            this.caller = (Caller) callerClass.getField("instance").get(callerClass);
+            caller = (Caller) callerClass.getField("instance").get(callerClass);
         }
-        return caller.call(this, methodId, params);
+
+        return caller;
     }
 
     /**

@@ -101,14 +101,14 @@ public class TestService1 extends Service<Integer> {
         Promise<Integer> countPromise = roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664)));
         countPromise.then(r -> {
             logger.info("1:roleService1Proxy.count()={}", r);
-        }).completely(()->{
+        }).completely(() -> {
             logger.error("3:roleService1Proxy.count()");
         }).then(r -> {
             logger.info("4:roleService1Proxy.count()={}", r);
         }).then(r -> {
             logger.info("5:roleService1Proxy.count()={}", r);
         }).exceptionally(e -> {
-            logger.error("6:roleService1Proxy.count()" ,e);
+            logger.error("6:roleService1Proxy.count()", e);
         });
 
     }
@@ -121,10 +121,14 @@ public class TestService1 extends Service<Integer> {
     public Promise<Integer> add1(Integer a, Integer b) {
         int r = a + b;
         logger.info("Execute TestService1:{}.add1({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
-        Promise<Integer> promise = testService2Proxy.add3(r, a);
-        promise.then(r3 -> {
+        Promise<Integer> promise = testService2Proxy.size(Arrays.asList(1, 2, 4));
+
+        promise.then(s -> {
+            return testService2Proxy.add3(r, a);
+        }).then(r3 -> {
             logger.info("TestService1:{} call TestService2.add3({},{})={}", id, r, a, r3);
         });
+
         return promise;
     }
 

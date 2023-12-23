@@ -49,7 +49,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
     protected final Worker worker;
 
     /**
-     * 过期时间
+     * 过期时间戳
      */
     private long expiredTime;
 
@@ -177,14 +177,14 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     public static Promise<Void> allOf(Promise<?>... promises) {
-        return new Promise<>(Worker.current(), CompletableFuture.allOf(toFutures(promises)));
+        return new Promise<>(Worker.current(), CompletableFuture.allOf(getFutures(promises)));
     }
 
     public static Promise<Object> anyOf(Promise<?>... promises) {
-        return new Promise<>(Worker.current(), CompletableFuture.anyOf(toFutures(promises)));
+        return new Promise<>(Worker.current(), CompletableFuture.anyOf(getFutures(promises)));
     }
 
-    private static CompletableFuture<?>[] toFutures(Promise<?>... promises) {
+    private static CompletableFuture<?>[] getFutures(Promise<?>... promises) {
         CompletableFuture<?>[] futures = new CompletableFuture[promises.length];
         for (int i = 0; i < promises.length; i++) {
             futures[i] = promises[i].future;
@@ -327,6 +327,14 @@ public class Promise<R> implements Comparable<Promise<?>> {
     @Override
     public int compareTo(Promise<?> other) {
         return Long.compare(this.expiredTime, other.expiredTime);
+    }
+
+    @Override
+    public String toString() {
+        return "Promise{" +
+                "callId=" + callId +
+                ", signature='" + signature + '\'' +
+                '}';
     }
 
 }

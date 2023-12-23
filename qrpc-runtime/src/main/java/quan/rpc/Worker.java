@@ -42,10 +42,7 @@ public class Worker implements Executor {
 
     private final SortedSet<Promise<?>> sortedPromises = newSet();
 
-    private final SortedSet<DelayedResult<?>> delayedResults = newSet();
-
     private final TimerQueue timerQueue = new TimerQueue(this);
-
 
     private int nextCallId = 1;
 
@@ -86,6 +83,10 @@ public class Worker implements Executor {
 
     public boolean isRunning() {
         return executor != null && !executor.isShutdown();
+    }
+
+    public boolean isThreadPool() {
+        return thread == null;
     }
 
     public void addService(Service<?> service) {
@@ -270,7 +271,6 @@ public class Worker implements Executor {
                 updateService(service);
             }
             expirePromises();
-            expireDelayedResults();
             checkUpdateTime();
         } finally {
             updateReadyTime = 0;
@@ -301,25 +301,13 @@ public class Worker implements Executor {
             if (!promise.isExpired()) {
                 return;
             }
+
             iterator.remove();
-            mappedPromises.remove(promise.getCallId());
-            promise.expire();
-        }
-    }
-
-    protected void expireDelayedResults() {
-        if (delayedResults.isEmpty()) {
-            return;
-        }
-
-        Iterator<DelayedResult<?>> iterator = delayedResults.iterator();
-        while (iterator.hasNext()) {
-            DelayedResult<?> delayedResult = iterator.next();
-            if (!delayedResult.isExpired()) {
-                return;
+            if (promise.getCallId() > 0) {
+                mappedPromises.remove(promise.getCallId());
             }
-            iterator.remove();
-            delayedResult.expire();
+
+            promise.expire();
         }
     }
 
@@ -350,16 +338,16 @@ public class Worker implements Executor {
     /**
      * 发送RPC请求
      *
-     * @param <R>              方法的返回结果泛型
-     * @param proxy            服务代理
-     * @param methodId         方法ID
-     * @param signature        方法签名字符串
-     * @param securityModifier 方法的安全修饰符
-     * @param expiredTime      方法的过期时间
-     * @param params           方法参数列表
+     * @param <R>         方法的返回结果泛型
+     * @param proxy       服务代理
+     * @param methodId    方法ID
+     * @param signature   方法签名字符串
+     * @param security    方法的安全修饰符
+     * @param expiredTime 方法的过期时间
+     * @param params      方法参数列表
      */
     @SuppressWarnings("unchecked")
-    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int securityModifier, int expiredTime, Object... params) {
+    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int security, int expiredTime, Object... params) {
         long callId = (long) this.id << 32 | getCallId();
 
         Promise<Object> promise = new Promise<>(this);
@@ -370,12 +358,12 @@ public class Worker implements Executor {
         mappedPromises.put(callId, promise);
         sortedPromises.add(promise);
 
-        sendRequest(proxy, promise, methodId, expiredTime, securityModifier, params);
+        sendRequest(proxy, promise, methodId, security, params);
 
         return (Promise<R>) promise;
     }
 
-    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int expiredTime, int securityModifier, Object... params) {
+    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int security, Object... params) {
         int targetNodeId;
         Object serviceId;
 
@@ -394,17 +382,14 @@ public class Worker implements Executor {
 
         if (targetNodeId == -1) {
             //延迟重新发送
-            newTimer(() -> sendRequest(proxy, promise, methodId, expiredTime, securityModifier, params), getNode().getConfig().getUpdateInterval());
+            newTimer(() -> sendRequest(proxy, promise, methodId, security, params), getNode().getConfig().getUpdateInterval());
             return;
         }
 
         try {
-            makeSafeParams(targetNodeId, securityModifier, params);
+            makeSafeParams(targetNodeId, security, params);
             Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
-            if (expiredTime > 0) {
-                request.setExpiredTime(promise.getExpiredTime());
-            }
-            node.sendRequest(targetNodeId, request, securityModifier);
+            node.sendRequest(targetNodeId, request, security);
         } catch (Exception e) {
             handleSendRequestError(promise, e);
         }
@@ -423,10 +408,10 @@ public class Worker implements Executor {
     /**
      * 如果有参数是不安全的,则需要复制它以保证安全
      *
-     * @param securityModifier 1:标记所有参数都是安全的，参考 {@link Endpoint#safeArgs()}
+     * @param security 1:标记所有参数都是安全的，参考 {@link Endpoint#safeArgs()}
      */
-    private void makeSafeParams(int targetNodeId, int securityModifier, Object[] params) {
-        if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || (securityModifier & 0b01) == 0b01) {
+    private void makeSafeParams(int targetNodeId, int security, Object[] params) {
+        if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || (security & 0b01) == 0b01) {
             return;
         }
 
@@ -441,97 +426,120 @@ public class Worker implements Executor {
     /**
      * 如果返回结果是不安全的，则需要复制它以保证安全
      *
-     * @param securityModifier 2:标记返回结果是安全的，参考 {@link Endpoint#safeReturn()}
+     * @param security 2:标记返回结果是安全的，参考 {@link Endpoint#safeReturn()}
      */
-    private Object makeSafeResult(int originNodeId, int securityModifier, Object result) {
+    private Object makeSafeResult(int originNodeId, int security, Object result) {
         if (result == null || originNodeId != this.node.getId()) {
             return result;
         }
 
-        if (ConstantUtils.isConstant(result) || (securityModifier & 0b10) == 0b10) {
+        if (ConstantUtils.isConstant(result) || (security & 0b10) == 0b10) {
             return result;
         } else {
             return cloneObject(result);
         }
     }
 
-    protected void handleRequest(Request request, int securityModifier) {
+    protected void handleRequest(Request request, int security) {
         int originNodeId = request.getOriginNodeId();
         long callId = request.getCallId();
         Object serviceId = request.getServiceId();
-
-        Object result = null;
-        String exceptionStr = null;
-
+        int methodId = request.getMethodId();
         Service<?> service = services.get(serviceId);
+
         if (service == null) {
-            logger.error("处理RPC请求,服务[{}]不存在,originNodeId:{},callId:{}", serviceId, originNodeId, callId);
+            logger.error("处理RPC请求,服务[{}]不存在,callId:{},originNodeId:{}", serviceId, callId, originNodeId);
+            node.sendResponse(originNodeId, callId, null, String.format("服务[%s]不存在", serviceId));
             return;
         }
 
+        Caller caller;
+        Object result;
+
         try {
-            result = service.call(request.getMethodId(), request.getParams());
+            caller = service.getCaller();
+            result = caller.call(service, methodId, request.getParams());
         } catch (Throwable e) {
-            exceptionStr = e.toString();
             logger.error("处理RPC请求,方法执行异常,callId:{},originNodeId:{}", callId, originNodeId, e);
+            Object exception = toResponseException(originNodeId, e);
+            node.sendResponse(originNodeId, callId, null, exception);
+            return;
         }
 
-        if (result instanceof DelayedResult) {
-            DelayedResult<?> delayedResult = (DelayedResult<?>) result;
-            if (delayedResult.isDone()) {
-                delayedResults.remove(delayedResult);
-            } else if (request.getExpiredTime() > 0) {
-                delayedResult.setExpiredTime(request.getExpiredTime());
-                //更新基于过期时间的排序
-                delayedResults.remove(delayedResult);
-                delayedResults.add(delayedResult);
+        if (!(result instanceof Promise)) {
+            node.sendResponse(originNodeId, callId, result, null);
+            return;
+        }
+
+        Promise<?> promise = (Promise<?>) result;
+
+        if (promise instanceof DelayedResult) {
+            if (promise.getSignature() == null) {
+                promise.setSignature(caller.getSignature(methodId));
+                int expiredTime = caller.getExpiredTime(methodId);
+                if (expiredTime > 0) {
+                    promise.calcExpiredTime(expiredTime);
+                    //更新基于过期时间的排序
+                    sortedPromises.remove(promise);
+                    sortedPromises.add(promise);
+                }
+            } else {
+                logger.error("方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), caller.getSignature(methodId));
             }
         }
 
-        if (result instanceof Promise) {
-            Promise<?> promise = (Promise<?>) result;
-            if (promise.isOK()) {
-                result = makeSafeResult(originNodeId, securityModifier, promise.getResult());
-            } else if (promise.isFailed()) {
-                exceptionStr = promise.getExceptionStr();
-            } else {
-                promise.completely0(() -> handleAsyncResult(promise, originNodeId, callId, securityModifier));
+        promise.completely0(() -> {
+            if (promise instanceof DelayedResult && !sortedPromises.remove(promise)) {
                 return;
             }
-        }
 
-        Response response = new Response(node.getId(), callId, result, exceptionStr);
-        node.sendResponse(originNodeId, response);
+            Object realResult = makeSafeResult(originNodeId, security, promise.getResult());
+            Object exception = toResponseException(originNodeId, promise);
+            node.sendResponse(originNodeId, callId, realResult, exception);
+        });
     }
 
-    protected void handleAsyncResult(Promise<?> promise, int originNodeId, long callId, int securityModifier) {
-        if (promise instanceof DelayedResult) {
-            if (!delayedResults.remove(promise)) {
-                return;
-            }
+    public <R> DelayedResult<R> newDelayedResult() {
+        DelayedResult<R> delayedResult = new DelayedResult<>(this);
+        sortedPromises.add(delayedResult);
+        return delayedResult;
+    }
+
+    private Object toResponseException(int targetNodeId, Throwable e) {
+        if (targetNodeId != this.node.getId() && this.node.getConfig().isThrowExceptionToRemote()) {
+            return e;
+        } else {
+            return e.toString();
         }
+    }
 
-        Object result = makeSafeResult(originNodeId, securityModifier, promise.getResult());
-        Response response = new Response(node.getId(), callId, result, promise.getExceptionStr());
-
-        node.sendResponse(originNodeId, response);
+    private Object toResponseException(int targetNodeId, Promise<?> promise) {
+        if (!promise.isFailed()) {
+            return null;
+        } else if (targetNodeId != this.node.getId() && this.node.getConfig().isThrowExceptionToRemote()) {
+            return promise.getException();
+        } else {
+            return promise.getExceptionStr();
+        }
     }
 
     protected void handleResponse(Response response) {
         long callId = response.getCallId();
         if (!mappedPromises.containsKey(callId)) {
-            logger.error("处理RPC响应,调用[{}]不存在,originNodeId：{}", callId, response.getOriginNodeId());
+            logger.error("处理RPC响应,调用[{}]不存在,originNodeId:{}", callId, response.getOriginNodeId());
         } else {
-            String exceptionStr = response.getException();
-            if (exceptionStr == null) {
-                handlePromise(callId, null, response.getResult());
+            Object exception = response.getException();
+            if (exception == null) {
+                handleResponse(callId, response.getResult(), null);
+            } else if (exception instanceof Throwable) {
+                handleResponse(callId, null, new CallException((Throwable) exception));
             } else {
-                handlePromise(callId, new CallException(exceptionStr), null);
+                handleResponse(callId, null, new CallException(exception.toString()));
             }
         }
     }
 
-    protected void handlePromise(long callId, Exception exception, Object result) {
+    protected void handleResponse(long callId, Object result, Exception exception) {
         @SuppressWarnings("unchecked")
         Promise<Object> promise = (Promise<Object>) mappedPromises.remove(callId);
 
@@ -549,12 +557,6 @@ public class Worker implements Executor {
         } else {
             promise.setResult(result);
         }
-    }
-
-    public <R> DelayedResult<R> newDelayedResult() {
-        DelayedResult<R> delayedResult = new DelayedResult<>(this);
-        delayedResults.add(delayedResult);
-        return delayedResult;
     }
 
     @Override

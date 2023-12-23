@@ -2,6 +2,7 @@ package quan.rpc;
 
 import com.rabbitmq.client.*;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
+import quan.rpc.Protocol.Request;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -82,7 +83,7 @@ public class RabbitConnector extends Connector {
             connection = connectionFactory.newConnection(executor);
         } catch (Exception e) {
             long reconnectInterval = connectionFactory.getNetworkRecoveryInterval();
-            logger.error("连接RabbitMQ失败，将在{}毫秒后尝试重连", reconnectInterval, e);
+            logger.error("连接RabbitMQ失败,将在{}毫秒后尝试重连", reconnectInterval, e);
             executor.schedule(this::connect, reconnectInterval, TimeUnit.MILLISECONDS);
             return;
         }
@@ -101,13 +102,15 @@ public class RabbitConnector extends Connector {
 
     private Channel getChannel() {
         if (connection == null) {
-            throw new RuntimeException("RabbitMQ连接还未建立");
+            throw new IllegalStateException("RabbitMQ连接还未建立");
         }
+
         Channel channel = localChannel.get();
         if (!channel.isOpen()) {
             localChannel.remove();
             channel = localChannel.get();
         }
+
         return channel;
     }
 
@@ -115,16 +118,14 @@ public class RabbitConnector extends Connector {
         try {
             Channel channel = connection.createChannel();
             channel.addShutdownListener(cause -> {
+                //主动关闭连接
                 boolean connectionClose = cause.getReason() instanceof AMQP.Connection.Close;
-                if (!cause.isHardError()) {
-                    if (!connectionClose) {
-                        logger.error("RabbitMQ channel shutdown", cause);
-                    } else {
-                        //保证至少有一个channel
-                        executor.execute(this::getChannel);
-                    }
-                } else if (!connectionClose) {
+                if (cause.isHardError() && !connectionClose) {
                     logger.error("RabbitMQ connection shutdown", cause);
+                } else if (!cause.isHardError() && !connectionClose) {
+                    logger.error("RabbitMQ channel shutdown", cause);
+                    //保证至少有一个channel
+                    executor.execute(this::getChannel);
                 }
             });
 
@@ -151,7 +152,6 @@ public class RabbitConnector extends Connector {
                     }
 
                     try {
-
                         handleProtocol(protocol);
                     } catch (Exception e) {
                         logger.error("处理协议出错", e);
@@ -180,12 +180,13 @@ public class RabbitConnector extends Connector {
                 //exchange不存在时不会报错，会异步关闭channel
                 getChannel().basicPublish(exchangeName(remoteId), "", null, bytes);
             } catch (Exception e) {
-                if (protocol instanceof Protocol.Request) {
-                    CallException callException = new CallException(String.format("发送协议到远程节点[%s]出错", remoteId), e);
-                    long callId = ((Protocol.Request) protocol).getCallId();
-                    worker.execute(() -> worker.handlePromise(callId, callException, null));
+                String error = String.format("发送协议到远程节点[%s]出错", remoteId);
+                if (protocol instanceof Request) {
+                    long callId = ((Request) protocol).getCallId();
+                    CallException callException = new CallException(error, e);
+                    worker.execute(() -> worker.handleResponse(callId, null, callException));
                 } else {
-                    logger.error("发送协议出错，{}", protocol, e);
+                    logger.error("{}:{}", error, protocol, e);
                 }
             }
         });
@@ -196,4 +197,5 @@ public class RabbitConnector extends Connector {
     public String toString() {
         return getClass().getName() + "{ip=" + connectionFactory.getHost() + ",port" + connectionFactory.getPort() + "}";
     }
+
 }

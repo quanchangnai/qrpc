@@ -162,7 +162,7 @@ public class Node {
 
         Worker worker = workers.get(workerId);
         if (worker == null) {
-            throw new IllegalArgumentException(String.format("参数[workerId]不合法，不存在线程工作者:%s", workerId));
+            throw new IllegalArgumentException(String.format("参数[workerId]不合法,不存在线程工作者:%s", workerId));
         }
 
         if (services.putIfAbsent(serviceId, service) == null) {
@@ -218,10 +218,10 @@ public class Node {
     /**
      * 发送RPC请求
      */
-    protected void sendRequest(int targetNodeId, Request request, int securityModifier) {
+    protected void sendRequest(int targetNodeId, Request request, int security) {
         if (targetNodeId == this.id || targetNodeId == 0) {
             //本地节点直接处理
-            handleRequest(request, securityModifier);
+            handleRequest(request, security);
         } else {
             try {
                 sendProtocol(targetNodeId, request);
@@ -234,13 +234,18 @@ public class Node {
     /**
      * 处理RPC请求
      */
-    protected void handleRequest(Request request, int securityModifier) {
-        Service<?> service = services.get(request.getServiceId());
+    protected void handleRequest(Request request, int security) {
+        int originNodeId = request.getOriginNodeId();
+        long callId = request.getCallId();
+        Object serviceId = request.getServiceId();
+        Service<?> service = services.get(serviceId);
+
         if (service == null) {
-            logger.error("处理RPC请求，服务[{}]不存在", request.getServiceId());
+            logger.error("处理RPC请求,服务[{}]不存在,callId:{},originNodeId:{}", serviceId, callId, originNodeId);
+            sendResponse(originNodeId, callId, null, String.format("服务[%s]不存在", serviceId));
         } else {
             Worker worker = service.getWorker();
-            worker.execute(() -> worker.handleRequest(request, securityModifier));
+            worker.execute(() -> worker.handleRequest(request, security));
         }
     }
 
@@ -251,7 +256,8 @@ public class Node {
     /**
      * 发送RPC响应
      */
-    protected void sendResponse(int targetNodeId, Response response) {
+    protected void sendResponse(int targetNodeId, long callId, Object result, Object exception) {
+        Response response = new Response(this.id, callId, result, exception);
         if (targetNodeId == this.id) {
             //本地节点直接处理
             handleResponse(response);
@@ -268,7 +274,7 @@ public class Node {
         int workerId = (int) (callId >> 32);
         Worker worker = workers.get(workerId);
         if (worker == null) {
-            logger.error("处理RPC响应，线程工作者[{}]不存在，originNodeId:{}，callId:{}", workerId, response.getOriginNodeId(), callId);
+            logger.error("处理RPC响应,线程工作者[{}]不存在,callId:{},originNodeId:{}", workerId, callId, response.getOriginNodeId());
         } else {
             worker.execute(() -> worker.handleResponse(response));
         }
@@ -314,6 +320,8 @@ public class Node {
         private NodeIdResolver nodeIdResolver;
 
         private ServiceIdResolver serviceIdResolver;
+
+        private boolean throwExceptionToRemote;
 
 
         private void checkReadonly() {
@@ -529,6 +537,16 @@ public class Node {
         public Config setServiceIdResolver(ServiceIdResolver serviceIdResolver) {
             checkReadonly();
             this.serviceIdResolver = Objects.requireNonNull(serviceIdResolver);
+            return this;
+        }
+
+        public boolean isThrowExceptionToRemote() {
+            return throwExceptionToRemote;
+        }
+
+        public Config setThrowExceptionToRemote(boolean throwExceptionToRemote) {
+            checkReadonly();
+            this.throwExceptionToRemote = throwExceptionToRemote;
             return this;
         }
     }

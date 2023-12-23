@@ -351,7 +351,7 @@ public class NettyConnector extends Connector {
             ChannelFuture channelFuture = bootstrap.connect(ip, port);
             channelFuture.addListener(future -> {
                 if (!future.isSuccess()) {
-                    logger.error("连接远程节点[{}]失败，将在{}毫秒后尝试重连，失败原因：{}", id, connector.getReconnectInterval(), future.cause().getMessage());
+                    logger.error("连接远程节点[{}]失败,将在{}毫秒后尝试重连,失败原因：{}", id, connector.getReconnectInterval(), future.cause().getMessage());
                     reconnect();
                 }
             });
@@ -377,7 +377,7 @@ public class NettyConnector extends Connector {
                 logger.error("远程节点[{}]连接已断开：{}", id, context.channel().remoteAddress());
                 connector.removeRemote(id);
             } else if (bootstrap != null) {
-                logger.error("远程节点[{}]连接已断开，将在{}毫秒后尝试重连: {}", id, connector.getReconnectInterval(), context.channel().remoteAddress());
+                logger.error("远程节点[{}]连接已断开,将在{}毫秒后尝试重连:{}", id, connector.getReconnectInterval(), context.channel().remoteAddress());
                 reconnect();
             }
         }

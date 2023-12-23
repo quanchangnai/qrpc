@@ -47,4 +47,34 @@ public final class ${name}Caller extends Caller {
         }
     }
 
+    @Override
+    public String getSignature(int methodId) {
+        switch (methodId) {
+        <#list methods as method>
+            case ${method.id}:
+                return "${fullName}.${method.signature?replace(' ','')}";
+        </#list>
+            default:
+                return ${superCallerName}.instance.getSignature(methodId);
+        }
+    }
+
+    @Override
+    public int getExpiredTime(int methodId) {
+        switch (methodId) {
+        <#list getMethods(false) as method>
+            case ${method.id}:
+            <#if !method?has_next>
+                return 0;
+            </#if>
+        </#list>
+        <#list getMethods(true) as method>
+            case ${method.id}:
+                return ${method.expiredTime};
+        </#list>
+            default:
+                return ${superCallerName}.instance.getExpiredTime(methodId);
+        }
+    }
+
 }

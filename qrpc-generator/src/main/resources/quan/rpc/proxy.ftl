@@ -90,7 +90,7 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
         ${method.parameters[paramName]} ${paramName}<#if paramName?has_next>, </#if><#t>
     </#list>
     <#lt>) {
-        return _sendRequest$(${method.id}, signatures[${method?index}], ${method.securityModifier}, ${method.expiredTime}<#rt>
+        return _sendRequest$(${method.id}, signatures[${method?index}], ${method.security}, ${method.expiredTime}<#rt>
         <#lt><#if method.oneArrayParam>, (Object) ${method.parameters?keys?first}<#elseif method.parameters?keys?size gt 0>, ${method.parameters?keys?join(', ')}</#if>);
     }
 

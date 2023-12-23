@@ -29,9 +29,14 @@ public class CallException extends RuntimeException {
         this.timeout = timeout;
     }
 
-    public CallException(String message, Throwable cause) {
-        super(message, cause);
+    public CallException(Throwable cause) {
+        super(cause);
     }
+
+    public CallException(String message, Throwable cause) {
+        super(message == null ? cause.toString() : message, cause);
+    }
+
 
     protected void setCallId(long callId) {
         this.callId = callId;

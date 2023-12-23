@@ -33,4 +33,11 @@ public final class DelayedResult<R> extends Promise<R> {
         }
     }
 
+    @Override
+    public String toString() {
+        return "DelayedResult{" +
+                "signature='" + getSignature() + '\'' +
+                '}';
+    }
+
 }

@@ -6,7 +6,7 @@ import java.util.List;
 
 public class ServiceMethod extends ServiceElement {
 
-    private int securityModifier;
+    private int security;
 
     public String returnType;
 
@@ -21,18 +21,18 @@ public class ServiceMethod extends ServiceElement {
 
     public void setSafeArgs(boolean safeArgs) {
         if (safeArgs) {
-            securityModifier |= 0b01;
+            security |= 0b01;
         }
     }
 
     public void setSafeReturn(boolean safeReturn) {
         if (safeReturn) {
-            securityModifier |= 0b10;
+            security |= 0b10;
         }
     }
 
-    public int getSecurityModifier() {
-        return securityModifier;
+    public int getSecurity() {
+        return security;
     }
 
     public String getReturnType() {
@@ -143,7 +143,7 @@ public class ServiceMethod extends ServiceElement {
         StringBuilder signature = new StringBuilder();
         signature.append(name);
 
-        if (serviceClass.getMethodNameCounts().get(name) == 1) {
+        if (serviceClass.getSameNameMethodCounts().get(name) == 1) {
             return signature.toString();
         }
 

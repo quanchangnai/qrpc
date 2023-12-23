@@ -1,6 +1,7 @@
 package quan.rpc;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class ServiceClass extends ServiceElement {
 
@@ -14,7 +15,7 @@ public class ServiceClass extends ServiceElement {
     private final List<ServiceMethod> methods = new ArrayList<>();
 
     //同名方法的数量
-    private final Map<String, Integer> methodNameCounts = new HashMap<>();
+    private final Map<String, Integer> sameNameMethodCounts = new HashMap<>();
 
     //服务ID的类型
     private String idType;
@@ -65,13 +66,17 @@ public class ServiceClass extends ServiceElement {
         return methods;
     }
 
-    public Map<String, Integer> getMethodNameCounts() {
-        if (methodNameCounts.isEmpty()) {
+    public List<ServiceMethod> getMethods(boolean hasExpiredTime) {
+        return methods.stream().filter(m -> hasExpiredTime == (m.getExpiredTime() > 0)).collect(Collectors.toList());
+    }
+
+    public Map<String, Integer> getSameNameMethodCounts() {
+        if (sameNameMethodCounts.isEmpty()) {
             for (ServiceMethod method : methods) {
-                methodNameCounts.merge(method.name, 1, Integer::sum);
+                sameNameMethodCounts.merge(method.name, 1, Integer::sum);
             }
         }
-        return methodNameCounts;
+        return sameNameMethodCounts;
     }
 
     public String getSuperName() {
