@@ -15,7 +15,7 @@ public class ServiceClass extends ServiceElement {
     private final List<ServiceMethod> methods = new ArrayList<>();
 
     //同名方法的数量
-    private final Map<String, Integer> sameNameMethodCounts = new HashMap<>();
+    private final Map<String, List<ServiceMethod>> sameNameMethods = new HashMap<>();
 
     //服务ID的类型
     private String idType;
@@ -70,13 +70,13 @@ public class ServiceClass extends ServiceElement {
         return methods.stream().filter(m -> hasExpiredTime == (m.getExpiredTime() > 0)).collect(Collectors.toList());
     }
 
-    public Map<String, Integer> getSameNameMethodCounts() {
-        if (sameNameMethodCounts.isEmpty()) {
+    public Map<String, List<ServiceMethod>> getSameNameMethods() {
+        if (sameNameMethods.isEmpty()) {
             for (ServiceMethod method : methods) {
-                sameNameMethodCounts.merge(method.name, 1, Integer::sum);
+                sameNameMethods.computeIfAbsent(method.name, k -> new ArrayList<>()).add(method);
             }
         }
-        return sameNameMethodCounts;
+        return sameNameMethods;
     }
 
     public String getSuperName() {

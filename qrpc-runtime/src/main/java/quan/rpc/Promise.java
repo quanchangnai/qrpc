@@ -42,9 +42,9 @@ public class Promise<R> implements Comparable<Promise<?>> {
     private long callId;
 
     /**
-     * 被调用方法的签名字符串
+     * 被调用的方法
      */
-    private String signature;
+    private String method;
 
     protected final Worker worker;
 
@@ -78,12 +78,12 @@ public class Promise<R> implements Comparable<Promise<?>> {
         this.callId = callId;
     }
 
-    protected String getSignature() {
-        return signature;
+    protected String getMethod() {
+        return method;
     }
 
-    protected void setSignature(String signature) {
-        this.signature = signature;
+    protected void setMethod(String method) {
+        this.method = method;
     }
 
     public Worker getWorker() {
@@ -131,7 +131,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
         if (e instanceof CallException) {
             CallException callException = (CallException) e;
             callException.setCallId(callId);
-            callException.setSignature(signature);
+            callException.setMethod(method);
         }
 
         future.completeExceptionally(e);
@@ -331,9 +331,9 @@ public class Promise<R> implements Comparable<Promise<?>> {
 
     @Override
     public String toString() {
-        return "Promise{" +
+        return getClass().getSimpleName() + "{" +
                 "callId=" + callId +
-                ", signature='" + signature + '\'' +
+                ", methodLabel='" + method + '\'' +
                 '}';
     }
 

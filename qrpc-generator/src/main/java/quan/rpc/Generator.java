@@ -1,5 +1,8 @@
 package quan.rpc;
 
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.tools.javac.api.JavacTrees;
+import com.sun.tools.javac.file.PathFileObject;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 
@@ -25,10 +28,6 @@ import java.util.stream.Collectors;
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 @SupportedAnnotationTypes({"quan.rpc.Endpoint", "quan.rpc.ProxyConstructors"})
 public class Generator extends AbstractProcessor {
-
-    private Messager messager;
-
-    private Filer filer;
 
     private Types types;
 
@@ -62,9 +61,6 @@ public class Generator extends AbstractProcessor {
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
-
-        messager = processingEnv.getMessager();
-        filer = processingEnv.getFiler();
         types = processingEnv.getTypeUtils();
         elements = processingEnv.getElementUtils();
         serviceType = types.erasure(elements.getTypeElement(Service.class.getName()).asType());
@@ -83,11 +79,11 @@ public class Generator extends AbstractProcessor {
     }
 
     private void warn(String msg, Element element) {
-        messager.printMessage(Diagnostic.Kind.WARNING, msg, element);
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING, msg, element);
     }
 
     private void error(Exception e) {
-        messager.printMessage(Diagnostic.Kind.ERROR, e.toString());
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, e.toString());
         e.printStackTrace();
     }
 
@@ -270,6 +266,23 @@ public class Generator extends AbstractProcessor {
         return superStartMethodId + superMethodElements.size();
     }
 
+    /**
+     * 获取元素所在源文件以及行号
+     * 参考 jdk.javadoc.internal.tool.Messager#getDiagSource(Element)
+     */
+    private String getSourceLine(Element element) {
+        try {
+            JavacTrees javacTrees = JavacTrees.instance(processingEnv);
+            CompilationUnitTree cut = javacTrees.getPath(element).getCompilationUnit();
+            long sourcePosition = javacTrees.getSourcePositions().getStartPosition(cut, javacTrees.getTree(element));
+            long lineNumber = cut.getLineMap().getLineNumber(sourcePosition);
+            String fileName = PathFileObject.getSimpleName(cut.getSourceFile());
+            return fileName + ":" + lineNumber;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
     private LinkedHashMap<String, List<String>> processTypeParameterBounds(List<? extends TypeParameterElement> typeParameterElements) {
         LinkedHashMap<String, List<String>> typeParameters = new LinkedHashMap<>();
 
@@ -287,6 +300,7 @@ public class Generator extends AbstractProcessor {
     private ServiceMethod processServiceMethod(ExecutableElement executableElement) {
         ServiceMethod serviceMethod = new ServiceMethod(executableElement.getSimpleName());
         serviceMethod.setComment(elements.getDocComment(executableElement));
+        serviceMethod.setSourceLine(getSourceLine(executableElement));
 
         if (!executableElement.getTypeParameters().isEmpty()) {
             serviceMethod.setTypeParametersStr("<" + executableElement.getTypeParameters() + ">");
@@ -345,7 +359,7 @@ public class Generator extends AbstractProcessor {
         Writer proxyWriter;
 
         if (proxyPath == null) {
-            JavaFileObject proxyFile = filer.createSourceFile(serviceClass.getFullName() + "Proxy");
+            JavaFileObject proxyFile = processingEnv.getFiler().createSourceFile(serviceClass.getFullName() + "Proxy");
             proxyWriter = proxyFile.openWriter();
         } else {
             File path = new File(proxyPath, serviceClass.getPackageName().replace(".", "/"));
@@ -366,7 +380,7 @@ public class Generator extends AbstractProcessor {
     }
 
     private void generateCaller(ServiceClass serviceClass) throws IOException {
-        JavaFileObject callerFile = filer.createSourceFile(serviceClass.getFullName() + "Caller");
+        JavaFileObject callerFile = processingEnv.getFiler().createSourceFile(serviceClass.getFullName() + "Caller");
 
         try (Writer callerWriter = callerFile.openWriter()) {
             callerTemplate.process(serviceClass, callerWriter);

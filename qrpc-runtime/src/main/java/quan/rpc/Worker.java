@@ -338,32 +338,32 @@ public class Worker implements Executor {
     /**
      * 发送RPC请求
      *
-     * @param <R>         方法的返回结果泛型
-     * @param proxy       服务代理
-     * @param methodId    方法ID
-     * @param signature   方法签名字符串
-     * @param security    方法的安全修饰符
-     * @param expiredTime 方法的过期时间
-     * @param params      方法参数列表
+     * @param <R>            方法的返回结果泛型
+     * @param proxy          服务代理
+     * @param methodId       方法ID
+     * @param methodLabel    方法标签
+     * @param methodSecurity 方法的安全修饰符
+     * @param expiredTime    方法的过期时间
+     * @param params         方法参数列表
      */
     @SuppressWarnings("unchecked")
-    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String signature, int security, int expiredTime, Object... params) {
+    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String methodLabel, int methodSecurity, int expiredTime, Object... params) {
         long callId = (long) this.id << 32 | getCallId();
 
         Promise<Object> promise = new Promise<>(this);
         promise.setCallId(callId);
-        promise.setSignature(signature);
+        promise.setMethod(methodLabel);
         promise.calcExpiredTime(expiredTime);
 
         mappedPromises.put(callId, promise);
         sortedPromises.add(promise);
 
-        sendRequest(proxy, promise, methodId, security, params);
+        sendRequest(proxy, promise, methodId, methodSecurity, params);
 
         return (Promise<R>) promise;
     }
 
-    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int security, Object... params) {
+    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int methodSecurity, Object... params) {
         int targetNodeId;
         Object serviceId;
 
@@ -382,14 +382,14 @@ public class Worker implements Executor {
 
         if (targetNodeId == -1) {
             //延迟重新发送
-            newTimer(() -> sendRequest(proxy, promise, methodId, security, params), getNode().getConfig().getUpdateInterval());
+            newTimer(() -> sendRequest(proxy, promise, methodId, methodSecurity, params), getNode().getConfig().getUpdateInterval());
             return;
         }
 
         try {
-            makeSafeParams(targetNodeId, security, params);
+            makeSafeParams(targetNodeId, methodSecurity, params);
             Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
-            node.sendRequest(targetNodeId, request, security);
+            node.sendRequest(targetNodeId, request, methodSecurity);
         } catch (Exception e) {
             handleSendRequestError(promise, e);
         }
@@ -406,12 +406,12 @@ public class Worker implements Executor {
     }
 
     /**
-     * 如果有参数是不安全的,则需要复制它以保证安全
+     * 如果方法有参数是不安全的,则需要复制它以保证安全
      *
-     * @param security 1:标记所有参数都是安全的，参考 {@link Endpoint#safeArgs()}
+     * @param methodSecurity 1:参考 {@link Endpoint#safeArgs()}
      */
-    private void makeSafeParams(int targetNodeId, int security, Object[] params) {
-        if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || (security & 0b01) == 0b01) {
+    private void makeSafeParams(int targetNodeId, int methodSecurity, Object[] params) {
+        if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || (methodSecurity & 0b01) == 0b01) {
             return;
         }
 
@@ -424,9 +424,9 @@ public class Worker implements Executor {
     }
 
     /**
-     * 如果返回结果是不安全的，则需要复制它以保证安全
+     * 如果方法的返回结果是不安全的，则需要复制它以保证安全
      *
-     * @param security 2:标记返回结果是安全的，参考 {@link Endpoint#safeReturn()}
+     * @param security 2:参考 {@link Endpoint#safeReturn()}
      */
     private Object makeSafeResult(int originNodeId, int security, Object result) {
         if (result == null || originNodeId != this.node.getId()) {
@@ -474,8 +474,8 @@ public class Worker implements Executor {
         Promise<?> promise = (Promise<?>) result;
 
         if (promise instanceof DelayedResult) {
-            if (promise.getSignature() == null) {
-                promise.setSignature(caller.getSignature(methodId));
+            if (promise.getMethod() == null) {
+                promise.setMethod(caller.getMethodLabel(methodId));
                 int expiredTime = caller.getExpiredTime(methodId);
                 if (expiredTime > 0) {
                     promise.calcExpiredTime(expiredTime);
@@ -484,7 +484,7 @@ public class Worker implements Executor {
                     sortedPromises.add(promise);
                 }
             } else {
-                logger.error("方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), caller.getSignature(methodId));
+                logger.error("方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), caller.getMethodLabel(methodId));
             }
         }
 

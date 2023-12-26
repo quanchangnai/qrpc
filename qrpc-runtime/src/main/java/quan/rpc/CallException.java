@@ -11,7 +11,7 @@ public class CallException extends RuntimeException {
 
     private long callId;
 
-    private String signature;
+    private String method;
 
     private boolean timeout;
 
@@ -42,8 +42,8 @@ public class CallException extends RuntimeException {
         this.callId = callId;
     }
 
-    protected void setSignature(String signature) {
-        this.signature = signature;
+    protected void setMethod(String method) {
+        this.method = method;
     }
 
     public boolean isTimeout() {
@@ -64,12 +64,12 @@ public class CallException extends RuntimeException {
             message += "异常返回";
         }
 
-        if (callId > 0 && signature != null) {
+        if (callId > 0) {
             message += ",callId:" + callId;
         }
 
-        if (signature != null) {
-            message += ",方法:" + signature;
+        if (method != null) {
+            message += ",方法:" + method;
         }
 
         if (!StringUtils.isBlank(super.getMessage())) {

@@ -120,12 +120,12 @@ public abstract class Proxy {
         return _getServiceName$();
     }
 
-    protected <R> Promise<R> _sendRequest$(int methodId, String signature, int security, int expiredTime, Object... params) {
+    protected <R> Promise<R> _sendRequest$(int methodId, String methodLabel, int methodSecurity, int expiredTime, Object... params) {
         Worker worker = Worker.current();
         if (worker == null) {
             throw new IllegalStateException("当前所处线程不合法");
         } else {
-            return worker.sendRequest(this, methodId, signature, security, expiredTime, params);
+            return worker.sendRequest(this, methodId, methodLabel, methodSecurity, expiredTime, params);
         }
     }
 

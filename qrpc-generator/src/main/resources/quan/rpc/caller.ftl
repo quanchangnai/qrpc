@@ -1,7 +1,7 @@
 <#if packageName??>
 package ${packageName};
 
- </#if>
+</#if>
 import java.util.*;
 import quan.rpc.*;
 
@@ -48,14 +48,14 @@ public final class ${name}Caller extends Caller {
     }
 
     @Override
-    public String getSignature(int methodId) {
+    public String getMethodLabel(int methodId) {
         switch (methodId) {
         <#list methods as method>
             case ${method.id}:
-                return "${fullName}.${method.signature?replace(' ','')}";
+                return "${fullName}.${method.label}";
         </#list>
             default:
-                return ${superCallerName}.instance.getSignature(methodId);
+                return ${superCallerName}.instance.getMethodLabel(methodId);
         }
     }
 

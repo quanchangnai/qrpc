@@ -1,5 +1,7 @@
 package quan.rpc;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,6 +14,11 @@ public class ServiceMethod extends ServiceElement {
 
     //参数名:参数类型
     private final HashMap<String, String> parameters = new LinkedHashMap<>();
+
+    /**
+     * 所在源文件以及行号
+     */
+    private String sourceLine;
 
     private int expiredTime;
 
@@ -29,6 +36,10 @@ public class ServiceMethod extends ServiceElement {
         if (safeReturn) {
             security |= 0b10;
         }
+    }
+
+    public void setServiceClass(ServiceClass serviceClass) {
+        this.serviceClass = serviceClass;
     }
 
     public int getSecurity() {
@@ -51,14 +62,13 @@ public class ServiceMethod extends ServiceElement {
         parameters.put(name.toString(), type);
     }
 
-    public void setServiceClass(ServiceClass serviceClass) {
-        this.serviceClass = serviceClass;
-    }
-
     public HashMap<String, String> getParameters() {
         return parameters;
     }
 
+    public void setSourceLine(String sourceLine) {
+        this.sourceLine = sourceLine;
+    }
 
     public int getExpiredTime() {
         return expiredTime;
@@ -140,31 +150,44 @@ public class ServiceMethod extends ServiceElement {
     }
 
     public String getSignature() {
-        StringBuilder signature = new StringBuilder();
-        signature.append(name);
+        StringBuilder sb = new StringBuilder();
+        sb.append(name);
 
-        if (serviceClass.getSameNameMethodCounts().get(name) == 1) {
-            return signature.toString();
+        if (serviceClass.getSameNameMethods().get(name).size() == 1) {
+            return sb.toString();
         }
 
-        signature.append("(");
+        sb.append("(");
 
         int i = 0;
         for (String parameterType : parameters.values()) {
             if (i++ > 0) {
-                signature.append(", ");
+                sb.append(", ");
             }
             int index = parameterType.indexOf("<");
             if (index > 0) {
                 //删掉泛型后缀
                 parameterType = parameterType.substring(0, index);
             }
-            signature.append(simplifyClassName(parameterType));
+            sb.append(simplifyClassName(parameterType));
         }
 
-        signature.append(")");
+        sb.append(")");
 
-        return signature.toString();
+        return sb.toString();
+    }
+
+    public String getLabel() {
+        if (StringUtils.isBlank(sourceLine)) {
+            List<ServiceMethod> sameNameMethods = serviceClass.getSameNameMethods().get(name);
+            if (sameNameMethods.size() == 1) {
+                return name;
+            } else {
+                return name + ":" + (sameNameMethods.indexOf(this) + 1);
+            }
+        } else {
+            return name + "(" + sourceLine + ")";
+        }
     }
 
     @Override
@@ -188,6 +211,7 @@ public class ServiceMethod extends ServiceElement {
         return "ServiceMethod{" +
                 "name='" + name + '\'' +
                 ", comment='" + comment + '\'' +
+                ", sourceLine='" + sourceLine + '\'' +
                 ", typeParameters=" + typeParametersStr +
                 ", returnType='" + returnType + '\'' +
                 ", parameters=" + parameters +

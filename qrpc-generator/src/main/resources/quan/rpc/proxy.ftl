@@ -18,9 +18,9 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
 
     public static final String SERVICE_NAME = "${fullName}";
 
-    private static final String[] signatures = {
+    private static final String[] methodLabels = {
         <#list methods as method>
-            SERVICE_NAME + ".${method.signature?replace(' ','')}"<#if method?has_next>,</#if>
+            SERVICE_NAME + ".${method.label}"<#if method?has_next>,</#if>
         </#list>
     };
 
@@ -67,9 +67,6 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
     }
 
     </#if>
-    /**
-     * 对应的服务名
-     */
     @Override
     protected String _getServiceName$() {
         return SERVICE_NAME;
@@ -90,7 +87,7 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
         ${method.parameters[paramName]} ${paramName}<#if paramName?has_next>, </#if><#t>
     </#list>
     <#lt>) {
-        return _sendRequest$(${method.id}, signatures[${method?index}], ${method.security}, ${method.expiredTime}<#rt>
+        return _sendRequest$(${method.id}, methodLabels[${method?index}], ${method.security}, ${method.expiredTime}<#rt>
         <#lt><#if method.oneArrayParam>, (Object) ${method.parameters?keys?first}<#elseif method.parameters?keys?size gt 0>, ${method.parameters?keys?join(', ')}</#if>);
     }
 

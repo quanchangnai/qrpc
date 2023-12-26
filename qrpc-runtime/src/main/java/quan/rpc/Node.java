@@ -393,35 +393,35 @@ public class Node {
         }
 
         /**
-         * 返回调用超时时间(毫秒)
+         * 返回调用方法的超时时间(毫秒)
          */
         public int getCallTtl() {
             return callTtl;
         }
 
         /**
-         * 设置调用超时时间(秒)
+         * 设置调用方法的超时时间(秒)
          */
         public Config setCallTtl(int callTtl) {
             checkReadonly();
-            Validate.isTrue(callTtl >= 1, "调用超时时间不能小于1秒");
+            Validate.isTrue(callTtl >= 1, "调用方法的超时时间不能小于1秒");
             this.callTtl = callTtl * 1000;
             return this;
         }
 
         /**
-         * 返回最大调用超时时间(毫秒)
+         * 返回调用方法的最大超时时间(毫秒)
          */
         public int getMaxCallTtl() {
             return maxCallTtl;
         }
 
         /**
-         * 设置最大调用超时时间(秒)
+         * 设置调用方法的最大超时时间(毫秒)
          */
         public Config setMaxCallTtl(int maxCallTtl) {
             checkReadonly();
-            Validate.isTrue(maxCallTtl >= 10, "最大调用超时时间不能小于10秒");
+            Validate.isTrue(maxCallTtl >= 10, "调用方法的最大超时时间不能小于10秒");
             this.maxCallTtl = maxCallTtl * 1000;
             return this;
         }
