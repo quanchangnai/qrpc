@@ -123,6 +123,7 @@ public class Worker implements Executor {
         if (service.state == 0) {
             try {
                 service.state = 1;
+                service.initTimers();
                 service.init();
             } catch (Exception e) {
                 logger.error("服务[{}]初始化异常", service.getId(), e);
@@ -196,6 +197,13 @@ public class Worker implements Executor {
      */
     public long getTime() {
         return node.getTime();
+    }
+
+    /**
+     * @see #getTime()
+     */
+    public static long currentTime() {
+        return Worker.current().getTime();
     }
 
     /**
@@ -283,7 +291,7 @@ public class Worker implements Executor {
 
     protected void updateService(Service<?> service) {
         try {
-            service.updateTimerQueue();
+            service.updateTimers();
             service.update();
         } catch (Exception e) {
             logger.error("服务[{}]刷帧出错", service.getId(), e);

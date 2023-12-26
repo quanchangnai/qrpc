@@ -3,10 +3,8 @@ package quan.rpc.test;
 import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import quan.rpc.Endpoint;
-import quan.rpc.Promise;
-import quan.rpc.ProxyConstructors;
-import quan.rpc.Service;
+import quan.rpc.Timer;
+import quan.rpc.*;
 
 import java.lang.annotation.ElementType;
 import java.util.*;
@@ -157,6 +155,11 @@ public class TestService1 extends Service<Integer> {
 
     @Endpoint
     public void type(ElementType type) {
+    }
+
+    @Timer.Period(1000)
+    private void save() {
+        logger.error("save {}", System.currentTimeMillis());
     }
 
 }

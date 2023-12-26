@@ -4,13 +4,18 @@ import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.model.time.ExecutionTime;
 import com.cronutils.parser.CronParser;
+import org.apache.commons.lang3.tuple.Triple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 定时器队列
@@ -30,6 +35,8 @@ public class TimerQueue {
     private final Worker worker;
 
     private final boolean concurrent;
+
+    private static final Map<Class<?>, List<Triple<MethodHandle, Long, String>>> allTimerMethods = new ConcurrentHashMap<>();
 
     public TimerQueue(Worker worker) {
         this.worker = Objects.requireNonNull(worker);
@@ -80,6 +87,70 @@ public class TimerQueue {
         return addTimerTask(task, 0, 0, cron);
     }
 
+    /**
+     * 为指定对象上所有被{@link Timer.Period}和{@link Timer.Cron}标记过的无参方法创建定时器
+     */
+    public List<Timer> newTimers(Object obj) {
+        Class<?> clazz = obj.getClass();
+        List<Triple<MethodHandle, Long, String>> timerMethods = allTimerMethods.get(clazz);
+
+        if (timerMethods == null) {
+            timerMethods = new ArrayList<>();
+
+            for (Method method : clazz.getDeclaredMethods()) {
+                Timer.Period period = method.getAnnotation(Timer.Period.class);
+                Timer.Cron cron = method.getAnnotation(Timer.Cron.class);
+                if (period == null && cron == null) {
+                    continue;
+                }
+
+                if (method.getParameterCount() > 0) {
+                    throw new RuntimeException("定时方法不能带有参数:" + method);
+                }
+
+                try {
+                    method.setAccessible(true);
+                    MethodHandle methodHandle = MethodHandles.publicLookup().unreflect(method);
+                    timerMethods.add(Triple.of(methodHandle, period == null ? null : period.value(), cron == null ? null : cron.value()));
+                } catch (IllegalAccessException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            allTimerMethods.put(clazz, timerMethods);
+        }
+
+        List<Timer> timers = new ArrayList<>();
+
+        for (Triple<MethodHandle, Long, String> timerMethod : timerMethods) {
+            MethodHandle methodHandle = timerMethod.getLeft();
+            Long period = timerMethod.getMiddle();
+            String cron = timerMethod.getRight();
+
+            Runnable task = () -> {
+                try {
+                    if (methodHandle.type().parameterCount() > 0) {
+                        methodHandle.invoke(obj);
+                    } else {
+                        methodHandle.invoke();
+                    }
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
+            };
+
+            if (period != null) {
+                timers.add(newTimer(task, 0, period));
+            }
+
+            if (cron != null) {
+                timers.add(newTimer(task, cron));
+            }
+        }
+
+        return timers;
+    }
+
     private Timer addTimerTask(Runnable task, long delay, long period, String cron) {
         Objects.requireNonNull(task, "参数[task]不能为空");
 
@@ -108,7 +179,6 @@ public class TimerQueue {
         } else {
             tempTimerTasks.add(timerTask);
         }
-
     }
 
     private void moveTimerTasks() {
@@ -167,7 +237,6 @@ public class TimerQueue {
             logger.error("定时任务执行出错", e);
         }
     }
-
 
     /**
      * 定时任务

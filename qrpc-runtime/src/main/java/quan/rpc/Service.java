@@ -34,9 +34,6 @@ public abstract class Service<I> implements Executor {
 
     final void setWorker(Worker worker) {
         this.worker = worker;
-        if (worker != null) {
-            timerQueue = new TimerQueue(worker);
-        }
     }
 
     public final Worker getWorker() {
@@ -99,13 +96,18 @@ public abstract class Service<I> implements Executor {
         return worker.newDelayedResult();
     }
 
+    final void initTimers() {
+        timerQueue = new TimerQueue(worker);
+        timerQueue.newTimers(this);
+    }
+
     /**
      * 初始化
      */
     protected void init() {
     }
 
-    final void updateTimerQueue() {
+    final void updateTimers() {
         timerQueue.update();
     }
 
