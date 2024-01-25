@@ -23,9 +23,9 @@ public abstract class Service<I> implements Executor {
      */
     private Worker worker;
 
-    private Caller caller;
+    private Invoker invoker;
 
-    private TimerQueue timerQueue;
+    private TimerMgr timerMgr;
 
     /**
      * 服务ID，一般为数字或者字符串，在同一个{@link Node}内必需保证唯一性
@@ -40,13 +40,13 @@ public abstract class Service<I> implements Executor {
         return worker;
     }
 
-    final Caller getCaller() throws Exception {
-        if (caller == null) {
-            Class<?> callerClass = Class.forName(getClass().getName() + "Caller");
-            caller = (Caller) callerClass.getField("instance").get(callerClass);
+    final Invoker getInvoker() throws Exception {
+        if (invoker == null) {
+            Class<?> invokerClass = Class.forName(getClass().getName() + "Invoker");
+            invoker = (Invoker) invokerClass.getField("instance").get(invokerClass);
         }
 
-        return caller;
+        return invoker;
     }
 
     /**
@@ -55,6 +55,10 @@ public abstract class Service<I> implements Executor {
     @Override
     public final void execute(Runnable task) {
         worker.execute(task);
+    }
+
+    public TimerMgr getTimerMgr() {
+        return timerMgr;
     }
 
     /**
@@ -67,28 +71,28 @@ public abstract class Service<I> implements Executor {
     /**
      * 创建一个延迟执行的定时器
      *
-     * @see TimerQueue#newTimer(Runnable, long)
+     * @see TimerMgr#newTimer(Runnable, long)
      */
     public Timer newTimer(Runnable task, long delay) {
-        return timerQueue.newTimer(task, delay);
+        return timerMgr.newTimer(task, delay);
     }
 
     /**
      * 创建一个周期性执行的定时器
      *
-     * @see TimerQueue#newTimer(Runnable, long, long)
+     * @see TimerMgr#newTimer(Runnable, long, long)
      */
     public Timer newTimer(Runnable task, long delay, long period) {
-        return timerQueue.newTimer(task, delay, period);
+        return timerMgr.newTimer(task, delay, period);
     }
 
     /**
      * 创建一个基于cron表达式的定时器
      *
-     * @see TimerQueue#newTimer(Runnable, String)
+     * @see TimerMgr#newTimer(Runnable, String)
      */
     public Timer newTimer(Runnable task, String cron) {
-        return timerQueue.newTimer(task, cron);
+        return timerMgr.newTimer(task, cron);
     }
 
 
@@ -96,9 +100,9 @@ public abstract class Service<I> implements Executor {
         return worker.newDelayedResult();
     }
 
-    final void initTimers() {
-        timerQueue = new TimerQueue(worker);
-        timerQueue.newTimers(this);
+    final void initTimerMgr() {
+        timerMgr = new TimerMgr(worker);
+        timerMgr.newTimers(this);
     }
 
     /**
@@ -107,15 +111,6 @@ public abstract class Service<I> implements Executor {
     protected void init() {
     }
 
-    final void updateTimers() {
-        timerQueue.update();
-    }
-
-    /**
-     * 刷帧
-     */
-    protected void update() {
-    }
 
     /**
      * 销毁

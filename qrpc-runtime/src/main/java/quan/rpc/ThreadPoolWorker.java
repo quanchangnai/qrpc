@@ -29,8 +29,7 @@ public class ThreadPoolWorker extends Worker {
 
     @Override
     @SuppressWarnings("SortedCollectionWithNonComparableKeys")
-    protected <E> SortedSet<E> newSet() {
-        //保证线程安全
+    protected <E> SortedSet<E> newSortedSet() {
         return new ConcurrentSkipListSet<>();
     }
 
@@ -48,7 +47,7 @@ public class ThreadPoolWorker extends Worker {
             executor.setThreadFactory(threadFactory);
             return executor;
         } else {
-            return new Executor(config.getThreadPoolWorkerCorePoolSize(), config.getThreadPoolWorkerMaxPoolSize(), config.getThreadPoolWorkerPoolSizeFactor(), threadFactory);
+            return new Executor(config.getCoreThreadPoolSize(), config.getMaxThreadPoolSize(), config.getThreadPoolSizeFactor(), threadFactory);
         }
     }
 
@@ -68,15 +67,6 @@ public class ThreadPoolWorker extends Worker {
     @Override
     protected void destroyService(Service<?> service) {
         execute(() -> super.destroyService(service));
-    }
-
-    @Override
-    protected void updateService(Service<?> service) {
-        execute(() -> {
-            if (getService(service.getId()) != null) {
-                super.updateService(service);
-            }
-        });
     }
 
     @Override

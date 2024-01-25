@@ -18,17 +18,17 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 定时器队列
+ * 定时器管理器
  *
  * @author quanchangnai
  */
-public class TimerQueue {
+public class TimerMgr {
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
-    private final PriorityQueue<TimerTask> timerTaskQueue = new PriorityQueue<>();
-
     private final List<TimerTask> tempTimerTasks = new ArrayList<>();
+
+    private final PriorityQueue<TimerTask> timerTaskQueue = new PriorityQueue<>();
 
     private final CronParser cronParser = new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
@@ -36,11 +36,15 @@ public class TimerQueue {
 
     private final boolean concurrent;
 
-    private static final Map<Class<?>, List<Triple<MethodHandle, Long, String>>> allTimerMethods = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, List<Triple<MethodHandle, Long, String>>> classTimerMethods = new ConcurrentHashMap<>();
 
-    public TimerQueue(Worker worker) {
+    public TimerMgr() {
+        this(Worker.current());
+    }
+
+    public TimerMgr(Worker worker) {
         this.worker = Objects.requireNonNull(worker);
-        this.concurrent = worker instanceof ThreadPoolWorker;
+        this.concurrent = !worker.isSingleThread();
     }
 
     /**
@@ -92,7 +96,7 @@ public class TimerQueue {
      */
     public List<Timer> newTimers(Object obj) {
         Class<?> clazz = obj.getClass();
-        List<Triple<MethodHandle, Long, String>> timerMethods = allTimerMethods.get(clazz);
+        List<Triple<MethodHandle, Long, String>> timerMethods = classTimerMethods.get(clazz);
 
         if (timerMethods == null) {
             timerMethods = new ArrayList<>();
@@ -117,7 +121,7 @@ public class TimerQueue {
                 }
             }
 
-            allTimerMethods.put(clazz, timerMethods);
+            classTimerMethods.put(clazz, timerMethods);
         }
 
         List<Timer> timers = new ArrayList<>();
@@ -140,7 +144,7 @@ public class TimerQueue {
             };
 
             if (period != null) {
-                timers.add(newTimer(task, 0, period));
+                timers.add(newTimer(task, period, period));
             }
 
             if (cron != null) {

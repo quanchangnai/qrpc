@@ -110,15 +110,15 @@ public class ServiceClass extends ServiceElement {
         return simplifyClassName(superProxyName);
     }
 
-    public String getSuperCallerName() {
-        String superCallerName;
+    public String getSuperInvokerName() {
+        String superInvokerName;
         if (superName.equals(Service.class.getName())) {
-            superCallerName = Caller.class.getSimpleName();
+            superInvokerName = Invoker.class.getSimpleName();
         } else {
-            superCallerName = superName + "Caller";
+            superInvokerName = superName + "Invoker";
         }
 
-        return simplifyClassName(superCallerName);
+        return simplifyClassName(superInvokerName);
     }
 
     public String getIdType() {

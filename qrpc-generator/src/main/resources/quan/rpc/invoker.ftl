@@ -5,20 +5,19 @@ package ${packageName};
 import java.util.*;
 import quan.rpc.*;
 
-
 /**
  * @see ${name}
  */
 @SuppressWarnings({"rawtypes", "unchecked"})
-public final class ${name}Caller extends Caller {
+public final class ${name}Invoker extends Invoker {
 
-    public static final ${name}Caller instance = new ${name}Caller();
+    public static final ${name}Invoker instance = new ${name}Invoker();
 
-    private ${name}Caller() {
+    private ${name}Invoker() {
     }
 
     @Override
-    public Object call(Service service, int methodId, Object... params) throws Throwable {
+    public Object invoke(Service service, int methodId, Object... params) throws Throwable {
         ${name} ${name?uncap_first} = (${name}) service;
         
         switch (methodId) {
@@ -43,7 +42,7 @@ public final class ${name}Caller extends Caller {
             </#if>
         </#list>
             default:
-                return ${superCallerName}.instance.call(service, methodId, params);
+                return ${superInvokerName}.instance.invoke(service, methodId, params);
         }
     }
 
@@ -55,7 +54,7 @@ public final class ${name}Caller extends Caller {
                 return "${fullName}.${method.label}";
         </#list>
             default:
-                return ${superCallerName}.instance.getMethodLabel(methodId);
+                return ${superInvokerName}.instance.getMethodLabel(methodId);
         }
     }
 
@@ -73,7 +72,7 @@ public final class ${name}Caller extends Caller {
                 return ${method.expiredTime};
         </#list>
             default:
-                return ${superCallerName}.instance.getExpiredTime(methodId);
+                return ${superInvokerName}.instance.getExpiredTime(methodId);
         }
     }
 

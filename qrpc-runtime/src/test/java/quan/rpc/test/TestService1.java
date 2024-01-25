@@ -45,13 +45,15 @@ public class TestService1 extends Service<Integer> {
             System.err.println("cron timer execute,time：" + getTime() + ",thread:" + Thread.currentThread());
         }, "0/10 * * * * ? ");
 
+        newTimer(this::update, 100, 100);
+
         for (int i = 0; i < 100; i++) {
             int a = i;
             newTimer(() -> {
                 for (int j = 0; j < 1; j++) {
                     try {
                         Thread.sleep(1);
-                    } catch (InterruptedException e) {
+                    } catch (InterruptedException ignored) {
                     }
                 }
                 x = RandomUtils.nextInt() + a;
@@ -65,7 +67,6 @@ public class TestService1 extends Service<Integer> {
         logger.info("TestService1:{} destroy at worker{}", this.id, this.getWorker().getId());
     }
 
-    @Override
     protected void update() {
         long now = System.currentTimeMillis();
 
@@ -83,27 +84,27 @@ public class TestService1 extends Service<Integer> {
         long startTime = System.nanoTime();
 
         Promise<Integer> promise = roleService2Proxy.login1(a, b, 111L, 333L);
-        promise.then(result1 -> {
+        promise.thenCompose(result1 -> {
             double costTime = (System.nanoTime() - startTime) / 1000000D;
             logger.info("TestService1:{} call RoleService1.login1({},{})={},costTime:{}", this.id, a, b, result1, costTime);
             return roleService2Proxy.login2(a, b + 1);//result2
-        }).then(result2 -> {
+        }).thenCompose(result2 -> {
             logger.info("TestService1 call RoleService1.login2,result2:{}", result2);
             return roleService2Proxy.login3(a, b + 2, null);//result3
-        }).then(result3 -> {
+        }).thenAccept(result3 -> {
             logger.info("TestService1 call RoleService1.login3,result3:{}", result3);
         }).exceptionally(e -> {
             logger.error(" TestService1 call RoleService1 error", e);
         });
 
         Promise<Integer> countPromise = roleService2Proxy.count(new HashSet<>(Arrays.asList(2334, 664)));
-        countPromise.then(r -> {
+        countPromise.thenAccept(r -> {
             logger.info("1:roleService1Proxy.count()={}", r);
         }).completely(() -> {
             logger.error("3:roleService1Proxy.count()");
-        }).then(r -> {
+        }).thenAccept(r -> {
             logger.info("4:roleService1Proxy.count()={}", r);
-        }).then(r -> {
+        }).thenAccept(r -> {
             logger.info("5:roleService1Proxy.count()={}", r);
         }).exceptionally(e -> {
             logger.error("6:roleService1Proxy.count()", e);
@@ -121,11 +122,10 @@ public class TestService1 extends Service<Integer> {
         logger.info("Execute TestService1:{}.add1({},{})={} at Worker:{}", id, a, b, r, this.getWorker().getId());
         Promise<Integer> promise = testService2Proxy.size(Arrays.asList(1, 2, 4));
 
-        promise.then(s -> {
-            return testService2Proxy.add3(r, a);
-        }).then(r3 -> {
-            logger.info("TestService1:{} call TestService2.add3({},{})={}", id, r, a, r3);
-        });
+        promise.thenCompose(s -> testService2Proxy.add3(r, a))
+                .thenAccept(r3 -> {
+                    logger.info("TestService1:{} call TestService2.add3({},{})={}", id, r, a, r3);
+                });
 
         return promise;
     }

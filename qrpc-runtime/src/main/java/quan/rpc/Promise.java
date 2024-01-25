@@ -12,7 +12,7 @@ import java.util.function.Function;
 
 /**
  * 处理异步调用的结果或异常的辅助类，类似于try-catch-finally代码块<br>
- * then方法用于处理结果，exceptionally方法用于处理异常，没有处理的异常会往后传递，completely方法则是最终处理，
+ * thenXxx方法用于处理结果，exceptionally方法用于处理异常，没有处理的异常会往后传递，completely方法则是最终处理，
  * 这些方法都会返回一个新的Promise对象用于后续处理流程，具体参考如下代码片段
  *
  * <pre> {@code
@@ -20,7 +20,7 @@ import java.util.function.Function;
  *      r = s1();
  *      s2(r);
  *      //p1 = a1()
- *      //p2 = p1.then(r -> a2(r))
+ *      //p2 = p1.thenAccept(r -> a2(r))
  * } catch (Exception e) {
  *      s3(e);
  *      //p3 = p2.exceptionally(e -> a3(e))
@@ -206,7 +206,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
      * @param handler 不关心结果的处理器
      * @return 一个新的Promise，用于处理异常情况
      */
-    public Promise<Void> then(Runnable handler) {
+    public Promise<Void> thenRun(Runnable handler) {
         checkHandler(handler);
         return new Promise<>(worker, future.thenRun(handler));
     }
@@ -217,7 +217,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
      * @param handler 结果处理器
      * @return 一个新的Promise，用于处理异常情况
      */
-    public Promise<Void> then(Consumer<? super R> handler) {
+    public Promise<Void> thenAccept(Consumer<? super R> handler) {
         checkHandler(handler);
         return new Promise<>(worker, future.thenAccept(handler));
     }
@@ -225,11 +225,23 @@ public class Promise<R> implements Comparable<Promise<?>> {
     /**
      * 设置异步调用成功返回时的处理器
      *
+     * @param handler 结果处理器，处理结果并返回一个新的结果
+     * @return 一个新的Promise，其结果就是参数handler返回的新结果
+     */
+    public <U> Promise<U> thenApply(Function<? super R, ? extends U> handler) {
+        checkHandler(handler);
+        return new Promise<>(worker, future.thenApply(handler));
+    }
+
+
+    /**
+     * 设置异步调用成功返回时的处理器
+     *
      * @param handler 结果处理器，处理结果并返回另一个带结果的Promise
-     * @return 一个新的Promise，其结果和handler返回的Promise一样
+     * @return 一个新的Promise，其结果和参数handler返回的Promise一样
      */
 
-    public <U> Promise<U> then(Function<? super R, ? extends Promise<U>> handler) {
+    public <U> Promise<U> thenCompose(Function<? super R, ? extends Promise<U>> handler) {
         checkHandler(handler);
         return new Promise<>(worker, future.thenCompose(r -> {
             Promise<U> p = handler.apply(r);
@@ -237,31 +249,6 @@ public class Promise<R> implements Comparable<Promise<?>> {
         }));
     }
 
-    private void setDefaultExceptionHandler() {
-        future.whenComplete((r, e) -> {
-            if (handler == null && e != null) {
-                //没有处理或传递的异常，默认打印一下堆栈
-                printException(e);
-            }
-        });
-    }
-
-    private void printException(Throwable e) {
-        logger.error("", realException(e));
-    }
-
-    private static Throwable realException(Throwable e) {
-        while (e instanceof CompletionException || e instanceof ExecutionException) {
-            Throwable cause = e.getCause();
-            if (cause != null) {
-                e = cause;
-            } else {
-                break;
-            }
-        }
-
-        return e;
-    }
 
     /**
      * 设置异步调用异常返回时的处理器，类似catch代码块
@@ -297,10 +284,11 @@ public class Promise<R> implements Comparable<Promise<?>> {
      */
     public Promise<Void> completely(Runnable handler) {
         checkHandler(handler);
-        return completely0(handler);
+        return _completely(handler);
     }
 
-    protected Promise<Void> completely0(Runnable handler) {
+    protected Promise<Void> _completely(Runnable handler) {
+        Objects.requireNonNull(handler, "处理器不能为空");
         Promise<Void> p = new Promise<>(worker);
 
         future.whenComplete((r, e1) -> {
@@ -322,6 +310,32 @@ public class Promise<R> implements Comparable<Promise<?>> {
         });
 
         return p;
+    }
+
+    private void setDefaultExceptionHandler() {
+        future.whenComplete((r, e) -> {
+            if (handler == null && e != null) {
+                //没有处理或传递的异常，默认打印一下堆栈
+                printException(e);
+            }
+        });
+    }
+
+    private void printException(Throwable e) {
+        logger.error("未处理异常", realException(e));
+    }
+
+    private static Throwable realException(Throwable e) {
+        while (e instanceof CompletionException || e instanceof ExecutionException) {
+            Throwable cause = e.getCause();
+            if (cause != null) {
+                e = cause;
+            } else {
+                break;
+            }
+        }
+
+        return e;
     }
 
     @Override

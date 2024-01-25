@@ -40,9 +40,10 @@ public class Worker implements Executor {
 
     private final Map<Long, Promise<?>> mappedPromises = newMap();
 
-    private final SortedSet<Promise<?>> sortedPromises = newSet();
+    private final SortedSet<Promise<?>> sortedPromises = newSortedSet();
 
-    private final TimerQueue timerQueue = new TimerQueue(this);
+
+    public final TimerMgr timerMgr = new TimerMgr(this);
 
     private int nextCallId = 1;
 
@@ -57,7 +58,7 @@ public class Worker implements Executor {
     private long printUpdateCostTime;
 
     protected Worker(Node node) {
-        this.node = node;
+        this.node = Objects.requireNonNull(node);
     }
 
     protected <K, V> Map<K, V> newMap() {
@@ -65,7 +66,7 @@ public class Worker implements Executor {
     }
 
     @SuppressWarnings("SortedCollectionWithNonComparableKeys")
-    protected <E> SortedSet<E> newSet() {
+    protected <E> SortedSet<E> newSortedSet() {
         return new TreeSet<>();
     }
 
@@ -85,8 +86,8 @@ public class Worker implements Executor {
         return executor != null && !executor.isShutdown();
     }
 
-    public boolean isThreadPool() {
-        return thread == null;
+    public boolean isSingleThread() {
+        return thread != null;
     }
 
     public void addService(Service<?> service) {
@@ -123,7 +124,7 @@ public class Worker implements Executor {
         if (service.state == 0) {
             try {
                 service.state = 1;
-                service.initTimers();
+                service.initTimerMgr();
                 service.init();
             } catch (Exception e) {
                 logger.error("服务[{}]初始化异常", service.getId(), e);
@@ -207,34 +208,6 @@ public class Worker implements Executor {
     }
 
     /**
-     * 创建一个延迟执行的定时器
-     *
-     * @see TimerQueue#newTimer(Runnable, long)
-     */
-    public Timer newTimer(Runnable task, long delay) {
-        return timerQueue.newTimer(task, delay);
-    }
-
-    /**
-     * 创建一个周期性执行的定时器
-     *
-     * @see TimerQueue#newTimer(Runnable, long)
-     */
-    public Timer newTimer(Runnable task, long delay, long period) {
-        return timerQueue.newTimer(task, delay, period);
-    }
-
-    /**
-     * 创建一个基于cron表达式的定时器
-     *
-     * @see TimerQueue#newTimer(Runnable, String)
-     */
-    public Timer newTimer(Runnable task, String cron) {
-        return timerQueue.newTimer(task, cron);
-    }
-
-
-    /**
      * 发起刷帧，上一次刷帧还没有结束不执行新的刷帧
      */
     protected void update() {
@@ -274,27 +247,14 @@ public class Worker implements Executor {
     private void doUpdate() {
         try {
             updateStartTime = System.currentTimeMillis();
-            updateTimerQueue();
+            timerMgr.update();
             for (Service<?> service : services.values()) {
-                updateService(service);
+                service.getTimerMgr().update();
             }
             expirePromises();
             checkUpdateTime();
         } finally {
             updateReadyTime = 0;
-        }
-    }
-
-    protected void updateTimerQueue() {
-        timerQueue.update();
-    }
-
-    protected void updateService(Service<?> service) {
-        try {
-            service.updateTimers();
-            service.update();
-        } catch (Exception e) {
-            logger.error("服务[{}]刷帧出错", service.getId(), e);
         }
     }
 
@@ -390,7 +350,7 @@ public class Worker implements Executor {
 
         if (targetNodeId == -1) {
             //延迟重新发送
-            newTimer(() -> sendRequest(proxy, promise, methodId, methodSecurity, params), getNode().getConfig().getUpdateInterval());
+            timerMgr.newTimer(() -> sendRequest(proxy, promise, methodId, methodSecurity, params), getNode().getConfig().getUpdateInterval());
             return;
         }
 
@@ -461,12 +421,12 @@ public class Worker implements Executor {
             return;
         }
 
-        Caller caller;
+        Invoker invoker;
         Object result;
 
         try {
-            caller = service.getCaller();
-            result = caller.call(service, methodId, request.getParams());
+            invoker = service.getInvoker();
+            result = invoker.invoke(service, methodId, request.getParams());
         } catch (Throwable e) {
             logger.error("处理RPC请求,方法执行异常,callId:{},originNodeId:{}", callId, originNodeId, e);
             Object exception = toResponseException(originNodeId, e);
@@ -483,8 +443,8 @@ public class Worker implements Executor {
 
         if (promise instanceof DelayedResult) {
             if (promise.getMethod() == null) {
-                promise.setMethod(caller.getMethodLabel(methodId));
-                int expiredTime = caller.getExpiredTime(methodId);
+                promise.setMethod(invoker.getMethodLabel(methodId));
+                int expiredTime = invoker.getExpiredTime(methodId);
                 if (expiredTime > 0) {
                     promise.calcExpiredTime(expiredTime);
                     //更新基于过期时间的排序
@@ -492,11 +452,11 @@ public class Worker implements Executor {
                     sortedPromises.add(promise);
                 }
             } else {
-                logger.error("方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), caller.getMethodLabel(methodId));
+                logger.error("方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), invoker.getMethodLabel(methodId));
             }
         }
 
-        promise.completely0(() -> {
+        promise._completely(() -> {
             if (promise instanceof DelayedResult && !sortedPromises.remove(promise)) {
                 return;
             }

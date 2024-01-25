@@ -56,7 +56,7 @@ public class Generator extends AbstractProcessor {
 
     private Template proxyTemplate;
 
-    private Template callerTemplate;
+    private Template invokerTemplate;
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
@@ -72,7 +72,7 @@ public class Generator extends AbstractProcessor {
             freemarkerCfg.setClassForTemplateLoading(getClass(), "");
             freemarkerCfg.setDefaultEncoding("UTF-8");
             proxyTemplate = freemarkerCfg.getTemplate("proxy.ftl");
-            callerTemplate = freemarkerCfg.getTemplate("caller.ftl");
+            invokerTemplate = freemarkerCfg.getTemplate("invoker.ftl");
         } catch (IOException e) {
             error(e);
         }
@@ -188,7 +188,7 @@ public class Generator extends AbstractProcessor {
         try {
             serviceClass.prepare();
             generateProxy(serviceClass);
-            generateCaller(serviceClass);
+            generateInvoker(serviceClass);
         } catch (IOException e) {
             error(e);
         }
@@ -379,11 +379,11 @@ public class Generator extends AbstractProcessor {
 
     }
 
-    private void generateCaller(ServiceClass serviceClass) throws IOException {
-        JavaFileObject callerFile = processingEnv.getFiler().createSourceFile(serviceClass.getFullName() + "Caller");
+    private void generateInvoker(ServiceClass serviceClass) throws IOException {
+        JavaFileObject invokerFile = processingEnv.getFiler().createSourceFile(serviceClass.getFullName() + "Invoker");
 
-        try (Writer callerWriter = callerFile.openWriter()) {
-            callerTemplate.process(serviceClass, callerWriter);
+        try (Writer invokerWriter = invokerFile.openWriter()) {
+            invokerTemplate.process(serviceClass, invokerWriter);
         } catch (Exception e) {
             error(e);
         }

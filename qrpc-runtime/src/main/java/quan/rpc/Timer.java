@@ -15,7 +15,6 @@ public interface Timer {
 
     boolean isDone();
 
-
     /**
      * 标记无参方法为周期性定时任务
      */

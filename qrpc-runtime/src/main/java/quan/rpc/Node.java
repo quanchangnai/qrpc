@@ -303,17 +303,17 @@ public class Node {
         /**
          * 线程池工作者核心池大小
          */
-        private int threadPoolWorkerCorePoolSize;
+        private int coreThreadPoolSize;
 
         /**
          * 线程池工作者最大池大小
          */
-        private int threadPoolWorkerMaxPoolSize;
+        private int maxThreadPoolSize;
 
         /**
          * 线程池工作者池大小系数
          */
-        private int threadPoolWorkerPoolSizeFactor;
+        private int threadPoolSizeFactor;
 
         private Supplier<ThreadPoolExecutor> threadPoolFactory;
 
@@ -459,31 +459,31 @@ public class Node {
          *
          * @param corePoolSize   核心池大小
          * @param maxPoolSize    最大池大小
-         * @param poolSizeFactor 池大小系数，当[已提交还未执行完的任务数量>池大小*池大小系数]时将创建新线程
+         * @param poolSizeFactor 池大小系数，当[已提交还未执行完的任务数量>当前池大小*池大小系数]时将创建新线程
          */
-        public Config setThreadPoolWorkerParam(int corePoolSize, int maxPoolSize, int poolSizeFactor) {
+        public Config setThreadPoolWorkerParams(int corePoolSize, int maxPoolSize, int poolSizeFactor) {
             checkReadonly();
             Validate.isTrue(corePoolSize >= 2 && maxPoolSize >= corePoolSize && poolSizeFactor > 0, "线程池工作者参数错误");
-            this.threadPoolWorkerCorePoolSize = corePoolSize;
-            this.threadPoolWorkerMaxPoolSize = maxPoolSize;
-            this.threadPoolWorkerPoolSizeFactor = poolSizeFactor;
+            this.coreThreadPoolSize = corePoolSize;
+            this.maxThreadPoolSize = maxPoolSize;
+            this.threadPoolSizeFactor = poolSizeFactor;
             return this;
         }
 
-        public Config setThreadPoolWorkerParam(int corePoolSize, int maxPoolSize) {
-            return setThreadPoolWorkerParam(corePoolSize, maxPoolSize, 5);
+        public Config setThreadPoolWorkerParams(int corePoolSize, int maxPoolSize) {
+            return setThreadPoolWorkerParams(corePoolSize, maxPoolSize, 5);
         }
 
-        public int getThreadPoolWorkerCorePoolSize() {
-            return threadPoolWorkerCorePoolSize;
+        public int getCoreThreadPoolSize() {
+            return coreThreadPoolSize;
         }
 
-        public int getThreadPoolWorkerMaxPoolSize() {
-            return threadPoolWorkerMaxPoolSize;
+        public int getMaxThreadPoolSize() {
+            return maxThreadPoolSize;
         }
 
-        public int getThreadPoolWorkerPoolSizeFactor() {
-            return threadPoolWorkerPoolSizeFactor;
+        public int getThreadPoolSizeFactor() {
+            return threadPoolSizeFactor;
         }
 
         /**
@@ -499,7 +499,7 @@ public class Node {
         }
 
         public boolean hasThreadPoolWorker() {
-            return threadPoolWorkerCorePoolSize > 0 || threadPoolFactory != null;
+            return coreThreadPoolSize > 0 || threadPoolFactory != null;
         }
 
         /**

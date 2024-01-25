@@ -106,22 +106,22 @@ public class TestService2 extends Service<Integer> {
         int b = (int) (startTime % 10);
 
         Promise<Integer> promise = testService1Proxy.add1(a, b);
-        promise.then(result -> {
+        promise.thenAccept(result -> {
             double costTime = (System.nanoTime() - startTime) / 1000000D;
             logger.info("TestService2:{} call TestService1.add1({},{})={},costTime:{}", this.id, a, b, result, costTime);
             System.err.println();
         });
 
-        add3(a, b).then(r -> {
+        add3(a, b).thenCompose(r -> {
             logger.info("1:add3({}, {})={}", a, b, r);
             return add3(a, r);
-        }).then(r -> {
+        }).thenCompose(r -> {
             logger.info("2:add3({}, {})={}", a, (r - a), r);
             return testService1Proxy.add1(a, r);
-        }).then(r -> {
+        }).thenCompose(r -> {
             logger.info("3:add3({}, {})={}", a, (r - a), r);
             return add3(a, r);
-        }).then(r -> {
+        }).thenAccept(r -> {
             logger.info("4:add3({}, {})={}", a, (r - a), r);
         });
     }

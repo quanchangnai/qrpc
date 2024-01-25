@@ -14,7 +14,7 @@ public class RpcTest1 {
     public static void main(String[] args) {
         Node.Config config = new Node.Config();
         config.setSingleThreadWorkerNum(1);
-        config.setThreadPoolWorkerParam(10, 300);
+        config.setThreadPoolWorkerParams(10, 300);
 
         NettyConnector nettyConnector = new NettyConnector("127.0.0.1", 8888);
 
