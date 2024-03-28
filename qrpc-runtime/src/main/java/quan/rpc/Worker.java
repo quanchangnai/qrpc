@@ -78,6 +78,10 @@ public class Worker implements Executor {
         return id;
     }
 
+    public Object getFlag() {
+        return id;
+    }
+
     public Node getNode() {
         return node;
     }
@@ -88,6 +92,10 @@ public class Worker implements Executor {
 
     public boolean isSingleThread() {
         return thread != null;
+    }
+
+    public boolean isThreadPool() {
+        return this instanceof ThreadPoolWorker;
     }
 
     public void addService(Service<?> service) {

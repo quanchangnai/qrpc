@@ -51,7 +51,6 @@ public class Node {
         this.id = id;
         this.config = config == null ? new Config() : config;
         this.config.validate();
-        this.config.readonly = true;
 
         this.initWorkers();
 
@@ -98,8 +97,8 @@ public class Node {
             workers.put(worker.getId(), worker);
         }
 
-        if (config.hasThreadPoolWorker()) {
-            Worker worker = new ThreadPoolWorker(this);
+        for (Config.ThreadPoolParam threadPoolParam : config.threadPoolParams) {
+            Worker worker = new ThreadPoolWorker(this, threadPoolParam);
             workers.put(worker.getId(), worker);
         }
 
@@ -298,24 +297,9 @@ public class Node {
 
         private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
 
+        private List<ThreadPoolParam> threadPoolParams = new ArrayList<>();
+
         private int ioThreadNum = 4;
-
-        /**
-         * 线程池工作者核心池大小
-         */
-        private int coreThreadPoolSize;
-
-        /**
-         * 线程池工作者最大池大小
-         */
-        private int maxThreadPoolSize;
-
-        /**
-         * 线程池工作者池大小系数
-         */
-        private int threadPoolSizeFactor;
-
-        private Supplier<ThreadPoolExecutor> threadPoolFactory;
 
         private NodeIdResolver nodeIdResolver;
 
@@ -330,12 +314,14 @@ public class Node {
             }
         }
 
-        public void validate() {
+        private void validate() {
             Validate.isTrue(getWorkerNum() >= 1, "工作者数量不能小于1");
             Validate.isTrue(maxUpdateWaitTime > 0 && maxUpdateWaitTime < updateInterval, "最大刷帧等待时间[%d]错误", maxUpdateWaitTime);
             Validate.isTrue(maxUpdateCostTime > 0 && maxUpdateCostTime < updateInterval, "最大刷帧消耗时间[%d]错误", maxUpdateCostTime);
             Validate.isTrue(maxUpdateInterval > updateInterval, "最大刷帧间隔时间[%d]错误", maxUpdateInterval);
             Validate.isTrue(callTtl < maxCallTtl, "调用超时时间[%d]错误", callTtl);
+            threadPoolParams = Collections.unmodifiableList(threadPoolParams);
+            this.readonly = true;
         }
 
 
@@ -461,57 +447,45 @@ public class Node {
          * @param maxPoolSize    最大池大小
          * @param poolSizeFactor 池大小系数，当[已提交还未执行完的任务数量>当前池大小*池大小系数]时将创建新线程
          */
-        public Config setThreadPoolWorkerParams(int corePoolSize, int maxPoolSize, int poolSizeFactor) {
+        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize, int poolSizeFactor, Object flag) {
             checkReadonly();
             Validate.isTrue(corePoolSize >= 2 && maxPoolSize >= corePoolSize && poolSizeFactor > 0, "线程池工作者参数错误");
-            this.coreThreadPoolSize = corePoolSize;
-            this.maxThreadPoolSize = maxPoolSize;
-            this.threadPoolSizeFactor = poolSizeFactor;
+            threadPoolParams.add(new ThreadPoolParam(corePoolSize, maxPoolSize, poolSizeFactor, flag));
             return this;
         }
 
-        public Config setThreadPoolWorkerParams(int corePoolSize, int maxPoolSize) {
-            return setThreadPoolWorkerParams(corePoolSize, maxPoolSize, 5);
+        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize, int poolSizeFactor) {
+            return addThreadPoolWorker(corePoolSize, maxPoolSize, poolSizeFactor, null);
         }
 
-        public int getCoreThreadPoolSize() {
-            return coreThreadPoolSize;
+        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize, Object flag) {
+            return addThreadPoolWorker(corePoolSize, maxPoolSize, 5, flag);
         }
 
-        public int getMaxThreadPoolSize() {
-            return maxThreadPoolSize;
+        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize) {
+            return addThreadPoolWorker(corePoolSize, maxPoolSize, 5, null);
         }
 
-        public int getThreadPoolSizeFactor() {
-            return threadPoolSizeFactor;
-        }
-
-        /**
-         * 设置线程池工作者的线程池工厂，将会优先使用外部提供的工厂创建线程池
-         */
-        public Supplier<ThreadPoolExecutor> getThreadPoolFactory() {
-            return threadPoolFactory;
-        }
-
-        public void setThreadPoolFactory(Supplier<ThreadPoolExecutor> threadPoolFactory) {
+        public Config addThreadPoolWorker(Supplier<ThreadPoolExecutor> threadPoolFactory, Object flag) {
             checkReadonly();
-            this.threadPoolFactory = Objects.requireNonNull(threadPoolFactory);
+            Objects.requireNonNull(threadPoolFactory, "线程池工厂不能为空");
+            threadPoolParams.add(new ThreadPoolParam(threadPoolFactory, flag));
+            return this;
         }
 
-        public boolean hasThreadPoolWorker() {
-            return coreThreadPoolSize > 0 || threadPoolFactory != null;
+        public Config addThreadPoolWorker(Supplier<ThreadPoolExecutor> threadPoolFactory) {
+            return addThreadPoolWorker(threadPoolFactory, null);
+        }
+
+        public List<ThreadPoolParam> getThreadPoolParams() {
+            return threadPoolParams;
         }
 
         /**
          * 工作者总数量
          */
         public int getWorkerNum() {
-            if (hasThreadPoolWorker()) {
-                return singleThreadWorkerNum + 1;
-            } else {
-                return singleThreadWorkerNum;
-            }
-
+            return singleThreadWorkerNum + threadPoolParams.size();
         }
 
         public NodeIdResolver getNodeIdResolver() {
@@ -548,6 +522,61 @@ public class Node {
             checkReadonly();
             this.throwExceptionToRemote = throwExceptionToRemote;
             return this;
+        }
+
+
+        public static class ThreadPoolParam {
+
+            private int corePoolSize;
+
+            private int maxPoolSize;
+
+            /**
+             * 池大小系数，当[已提交还未执行完的任务数量>当前池大小*池大小系数]时将创建新线程
+             */
+            private int poolSizeFactor;
+
+            /**
+             * 线程池工厂，优先使用
+             */
+            private Supplier<ThreadPoolExecutor> threadPoolFactory;
+
+            /**
+             * 自定义标记
+             */
+            private Object flag;
+
+            protected ThreadPoolParam(int corePoolSize, int maxThreadPoolSize, int threadPoolSizeFactor, Object flag) {
+                this.corePoolSize = corePoolSize;
+                this.maxPoolSize = maxThreadPoolSize;
+                this.poolSizeFactor = threadPoolSizeFactor;
+                this.flag = flag;
+            }
+
+            protected ThreadPoolParam(Supplier<ThreadPoolExecutor> threadPoolFactory, Object flag) {
+                this.threadPoolFactory = threadPoolFactory;
+                this.flag = flag;
+            }
+
+            public int getCorePoolSize() {
+                return corePoolSize;
+            }
+
+            public int getMaxPoolSize() {
+                return maxPoolSize;
+            }
+
+            public int getPoolSizeFactor() {
+                return poolSizeFactor;
+            }
+
+            public Supplier<ThreadPoolExecutor> getThreadPoolFactory() {
+                return threadPoolFactory;
+            }
+
+            public Object getFlag() {
+                return flag;
+            }
         }
     }
 

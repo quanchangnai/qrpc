@@ -1,6 +1,7 @@
 package quan.rpc;
 
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
+import quan.rpc.Node.Config.ThreadPoolParam;
 
 import java.util.Map;
 import java.util.SortedSet;
@@ -15,10 +16,23 @@ import java.util.function.Supplier;
  */
 public class ThreadPoolWorker extends Worker {
 
+    private final ThreadPoolParam param;
+
     private final AtomicInteger nextCallId = new AtomicInteger(1);
 
-    protected ThreadPoolWorker(Node node) {
+    protected ThreadPoolWorker(Node node, ThreadPoolParam param) {
         super(node);
+        this.param = param;
+    }
+
+    @Override
+    public Object getFlag() {
+        Object flag = param.getFlag();
+        if (flag == null) {
+            return super.getFlag();
+        } else {
+            return flag;
+        }
     }
 
     @Override
@@ -39,15 +53,14 @@ public class ThreadPoolWorker extends Worker {
                 .wrappedFactory(this::newThread)
                 .build();
 
-        Node.Config config = getNode().getConfig();
-        Supplier<ThreadPoolExecutor> threadPoolFactory = config.getThreadPoolFactory();
+        Supplier<ThreadPoolExecutor> threadPoolFactory = param.getThreadPoolFactory();
 
         if (threadPoolFactory != null) {
             ThreadPoolExecutor executor = threadPoolFactory.get();
             executor.setThreadFactory(threadFactory);
             return executor;
         } else {
-            return new Executor(config.getCoreThreadPoolSize(), config.getMaxThreadPoolSize(), config.getThreadPoolSizeFactor(), threadFactory);
+            return new Executor(param.getCorePoolSize(), param.getMaxPoolSize(), param.getPoolSizeFactor(), threadFactory);
         }
     }
 
@@ -77,6 +90,17 @@ public class ThreadPoolWorker extends Worker {
     @Override
     protected Object cloneObject(Object object) {
         return SerializeUtils.clone(object, false);
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "{" +
+                "id=" + getId() +
+                ",flag=" + getFlag() +
+                ",corePoolSize=" + param.getCorePoolSize() +
+                ",maxPoolSize=" + param.getMaxPoolSize() +
+                ",poolSizeFactor=" + param.getPoolSizeFactor() +
+                '}';
     }
 
     private static class Executor extends ThreadPoolExecutor {
