@@ -27,12 +27,7 @@ public class ThreadPoolWorker extends Worker {
 
     @Override
     public Object getFlag() {
-        Object flag = param.getFlag();
-        if (flag == null) {
-            return super.getFlag();
-        } else {
-            return flag;
-        }
+        return param.getFlag();
     }
 
     @Override

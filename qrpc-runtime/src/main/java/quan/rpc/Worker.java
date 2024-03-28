@@ -79,7 +79,7 @@ public class Worker implements Executor {
     }
 
     public Object getFlag() {
-        return id;
+        return null;
     }
 
     public Node getNode() {

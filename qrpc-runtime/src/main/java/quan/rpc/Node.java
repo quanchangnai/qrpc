@@ -422,7 +422,7 @@ public class Node {
         public Config setIoThreadNum(int ioThreadNum) {
             checkReadonly();
             this.ioThreadNum = ioThreadNum;
-            Validate.isTrue(singleThreadWorkerNum >= 1, "网络ID线程数量不能小于1");
+            Validate.isTrue(singleThreadWorkerNum >= 1, "网络IO线程数量不能小于1");
             return this;
         }
 
