@@ -7,10 +7,10 @@ dependencies {
     api 'org.apache.logging.log4j:log4j-core:2.17.2'
     api 'org.apache.logging.log4j:log4j-slf4j-impl:2.17.2'
     api 'org.apache.commons:commons-lang3:3.9'
-    api 'io.netty:netty-all:4.1.86.Final'
+    api 'io.netty:netty-all:4.1.108.Final'
     api group: 'com.cronutils', name: 'cron-utils', version: '9.1.8'
     api group: 'io.protostuff', name: 'protostuff-core', version: '1.8.0'
     api group: 'io.protostuff', name: 'protostuff-runtime', version: '1.8.0'
-    implementation 'com.rabbitmq:amqp-client:5.15.0'
+    implementation 'com.rabbitmq:amqp-client:5.20.0'
     testAnnotationProcessor project(':qrpc-generator')
 }

@@ -11,6 +11,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * RPC节点
@@ -183,9 +184,9 @@ public class Node {
     }
 
     public void addService(Service<?> service, Predicate<Worker> predicate) {
-        Worker worker = workers.values().stream().filter(predicate).findAny().orElse(null);
-        if (worker != null) {
-            addService(service, worker);
+        List<Worker> list = workers.values().stream().filter(predicate).collect(Collectors.toList());
+        if (!list.isEmpty()) {
+            addService(service, list.get(RandomUtils.nextInt(0, list.size())));
         } else {
             throw new IllegalStateException("没有找到合适的线程工作者");
         }

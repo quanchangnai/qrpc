@@ -42,6 +42,11 @@ public class Promise<R> implements Comparable<Promise<?>> {
     private long callId;
 
     /**
+     * 目标节点
+     */
+    private int nodeId;
+
+    /**
      * 被调用的方法
      */
     private String method;
@@ -76,6 +81,14 @@ public class Promise<R> implements Comparable<Promise<?>> {
 
     protected void setCallId(long callId) {
         this.callId = callId;
+    }
+
+    protected int getNodeId() {
+        return nodeId;
+    }
+
+    protected void setNodeId(int nodeId) {
+        this.nodeId = nodeId;
     }
 
     protected String getMethod() {
@@ -129,12 +142,16 @@ public class Promise<R> implements Comparable<Promise<?>> {
         Objects.requireNonNull(e);
 
         if (e instanceof CallException) {
-            CallException callException = (CallException) e;
-            callException.setCallId(callId);
-            callException.setMethod(method);
+            fillCallInfo((CallException) e);
         }
 
         future.completeExceptionally(e);
+    }
+
+    protected void fillCallInfo(CallException callException) {
+        callException.setCallId(callId);
+        callException.setNodeId(nodeId);
+        callException.setMethod(method);
     }
 
     protected Throwable getException() {
@@ -156,7 +173,9 @@ public class Promise<R> implements Comparable<Promise<?>> {
 
     protected void expire() {
         if (!isDone()) {
-            setException(new CallException(null, true));
+            CallException callException = new CallException(null, true);
+            fillCallInfo(callException);
+            setException(callException);
         }
     }
 

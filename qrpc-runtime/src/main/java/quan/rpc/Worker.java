@@ -352,7 +352,7 @@ public class Worker implements Executor {
         }
 
         if (promise.isExpired()) {
-            logger.error("发送RPC请求,已过期无需发送,targetNodeId:{},serviceId:{}", targetNodeId, serviceId);
+            logger.error("发送RPC请求,已过期无需发送,targetNodeId:{},serviceId:{},method:{}", targetNodeId, serviceId, promise.getMethod());
             return;
         }
 
@@ -363,6 +363,7 @@ public class Worker implements Executor {
         }
 
         try {
+            promise.setNodeId(targetNodeId);
             makeSafeParams(targetNodeId, methodSecurity, params);
             Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
             node.sendRequest(targetNodeId, request, methodSecurity);
@@ -436,7 +437,7 @@ public class Worker implements Executor {
             invoker = service.getInvoker();
             result = invoker.invoke(service, methodId, request.getParams());
         } catch (Throwable e) {
-            logger.error("处理RPC请求,方法执行异常,callId:{},originNodeId:{}", callId, originNodeId, e);
+            logger.error("处理RPC请求,方法执行出错,callId:{},originNodeId:{}", callId, originNodeId, e);
             Object exception = toResponseException(originNodeId, e);
             node.sendResponse(originNodeId, callId, null, exception);
             return;
@@ -460,7 +461,7 @@ public class Worker implements Executor {
                     sortedPromises.add(promise);
                 }
             } else {
-                logger.error("方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), invoker.getMethodLabel(methodId));
+                logger.error("处理RPC请求,方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), invoker.getMethodLabel(methodId));
             }
         }
 
@@ -502,15 +503,16 @@ public class Worker implements Executor {
     protected void handleResponse(Response response) {
         long callId = response.getCallId();
         if (!mappedPromises.containsKey(callId)) {
-            logger.error("处理RPC响应,调用[{}]不存在,originNodeId:{}", callId, response.getOriginNodeId());
+            logger.error("处理RPC响应,调用不存在,callId:{},originNodeId:{}", callId, response.getOriginNodeId());
         } else {
             Object exception = response.getException();
             if (exception == null) {
                 handleResponse(callId, response.getResult(), null);
-            } else if (exception instanceof Throwable) {
-                handleResponse(callId, null, new CallException((Throwable) exception));
             } else {
-                handleResponse(callId, null, new CallException(exception.toString()));
+                Promise<?> promise = mappedPromises.get(callId);
+                CallException callException = exception instanceof Throwable ? new CallException((Throwable) exception) : new CallException(exception.toString());
+                promise.fillCallInfo(callException);
+                handleResponse(callId, null, callException);
             }
         }
     }
@@ -521,7 +523,7 @@ public class Worker implements Executor {
 
         if (promise == null) {
             if (exception != null) {
-                logger.error("调用[{}]方法出错", callId, exception);
+                logger.error("处理RPC响应,调用方法出错,callId:{}", callId, exception);
             }
             return;
         }

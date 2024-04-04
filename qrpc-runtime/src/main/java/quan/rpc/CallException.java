@@ -11,6 +11,14 @@ public class CallException extends RuntimeException {
 
     private long callId;
 
+    /**
+     * 目标节点
+     */
+    private int nodeId;
+
+    /**
+     * 目标方法信息
+     */
     private String method;
 
     private boolean timeout;
@@ -42,6 +50,14 @@ public class CallException extends RuntimeException {
         this.callId = callId;
     }
 
+    protected int getNodeId() {
+        return nodeId;
+    }
+
+    protected void setNodeId(int nodeId) {
+        this.nodeId = nodeId;
+    }
+
     protected void setMethod(String method) {
         this.method = method;
     }
@@ -68,6 +84,9 @@ public class CallException extends RuntimeException {
             message += ",callId:" + callId;
         }
 
+        if (nodeId > 0) {
+            message += ",目标节点:" + nodeId;
+        }
         if (method != null) {
             message += ",方法:" + method;
         }
