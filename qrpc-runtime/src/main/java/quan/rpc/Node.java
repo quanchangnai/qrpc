@@ -286,17 +286,28 @@ public class Node {
 
         private int updateInterval = 50;
 
-        private int maxUpdateWaitTime = 5;
+        /**
+         * 最大刷帧等待时间(毫秒)，[刷帧任务开始执行的时间戳]减去[提交刷帧任务的时间戳]超过此值会打印日志，最好大于GC最大暂停时间
+         */
+        private int maxUpdateWaitTime = 200;
 
-        private int maxUpdateCostTime = 25;
+        /**
+         * 最大刷帧消耗时间(毫秒)，[刷帧任务结束执行的时间戳]减去[刷帧任务开始执行的时间戳]超过此值会打印日志，最好大于GC最大暂停时间
+         */
+        private int maxUpdateCostTime = 200;
 
-        private int maxUpdateInterval = 100;
+        /**
+         * [当前时间戳]减去[刷帧任务开始执行的时间戳]超过此值会打印日志，一定要大于{@link #maxUpdateWaitTime}+{@link #maxUpdateCostTime}
+         */
+        private int maxUpdateInterval = 1000;
 
         private int callTtl = 1000 * 10;
 
         private int maxCallTtl = 1000 * 60 * 5;
 
         private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
+
+        private String singleThreadWorkerFlagPrefix = "";
 
         private List<ThreadPoolParam> threadPoolParams = new ArrayList<>();
 
@@ -317,14 +328,13 @@ public class Node {
 
         private void validate() {
             Validate.isTrue(getWorkerNum() >= 1, "工作者数量不能小于1");
-            Validate.isTrue(maxUpdateWaitTime > 0 && maxUpdateWaitTime < updateInterval, "最大刷帧等待时间[%d]错误", maxUpdateWaitTime);
-            Validate.isTrue(maxUpdateCostTime > 0 && maxUpdateCostTime < updateInterval, "最大刷帧消耗时间[%d]错误", maxUpdateCostTime);
-            Validate.isTrue(maxUpdateInterval > updateInterval, "最大刷帧间隔时间[%d]错误", maxUpdateInterval);
+            Validate.isTrue(maxUpdateWaitTime > 0, "最大刷帧等待时间[%d]错误", maxUpdateWaitTime);
+            Validate.isTrue(maxUpdateCostTime > 0, "最大刷帧消耗时间[%d]错误", maxUpdateCostTime);
+            Validate.isTrue(maxUpdateInterval > maxUpdateWaitTime + maxUpdateCostTime, "最大刷帧间隔时间[%d]错误", maxUpdateInterval);
             Validate.isTrue(callTtl < maxCallTtl, "调用超时时间[%d]错误", callTtl);
             threadPoolParams = Collections.unmodifiableList(threadPoolParams);
             this.readonly = true;
         }
-
 
         public int getUpdateInterval() {
             return updateInterval;
@@ -345,7 +355,7 @@ public class Node {
         }
 
         /**
-         * 设置{@link Worker}的最大刷帧等待时间(毫秒)，{@link #maxUpdateWaitTime} > 0 && {@link #maxUpdateWaitTime} < {@link #updateInterval}
+         * 设置{@link Worker}的最大刷帧等待时间(毫秒)，{@link #maxUpdateWaitTime}
          */
         public Config setMaxUpdateWaitTime(int maxUpdateWaitTime) {
             checkReadonly();
@@ -358,7 +368,7 @@ public class Node {
         }
 
         /**
-         * 设置{@link Worker}最大刷帧消耗时间(毫秒)，{@link #maxUpdateCostTime} > 0 && {@link #maxUpdateCostTime} < {@link #updateInterval}
+         * 设置{@link Worker}最大刷帧消耗时间(毫秒)，{@link #maxUpdateCostTime}
          */
         public Config setMaxUpdateCostTime(int maxUpdateCostTime) {
             checkReadonly();
@@ -371,7 +381,7 @@ public class Node {
         }
 
         /**
-         * 设置{@link Worker}最大刷帧间隔时间(毫秒)，{@link #maxUpdateInterval} > {@link #updateInterval}
+         * 设置{@link Worker}最大刷帧间隔时间(毫秒)，{@link #maxUpdateInterval}>{@link #maxUpdateWaitTime}+{@link #maxUpdateCostTime}
          */
         public Config setMaxUpdateInterval(int maxUpdateInterval) {
             checkReadonly();
@@ -441,6 +451,18 @@ public class Node {
             return this;
         }
 
+        public Config setSingleThreadWorkerFlagPrefix(String singleThreadWorkerFlagPrefix) {
+            checkReadonly();
+            if (singleThreadWorkerFlagPrefix != null) {
+                this.singleThreadWorkerFlagPrefix = singleThreadWorkerFlagPrefix;
+            }
+            return this;
+        }
+
+        public String getSingleThreadWorkerFlagPrefix() {
+            return singleThreadWorkerFlagPrefix;
+        }
+
         /**
          * 设置线程池工作者参数
          *
@@ -448,7 +470,7 @@ public class Node {
          * @param maxPoolSize    最大池大小
          * @param poolSizeFactor 池大小系数，当[已提交还未执行完的任务数量>当前池大小*池大小系数]时将创建新线程
          */
-        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize, int poolSizeFactor, Object flag) {
+        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize, int poolSizeFactor, String flag) {
             checkReadonly();
             Validate.isTrue(corePoolSize >= 2 && maxPoolSize >= corePoolSize && poolSizeFactor > 0, "线程池工作者参数错误");
             threadPoolParams.add(new ThreadPoolParam(corePoolSize, maxPoolSize, poolSizeFactor, flag));
@@ -459,7 +481,7 @@ public class Node {
             return addThreadPoolWorker(corePoolSize, maxPoolSize, poolSizeFactor, null);
         }
 
-        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize, Object flag) {
+        public Config addThreadPoolWorker(int corePoolSize, int maxPoolSize, String flag) {
             return addThreadPoolWorker(corePoolSize, maxPoolSize, 5, flag);
         }
 
@@ -467,7 +489,7 @@ public class Node {
             return addThreadPoolWorker(corePoolSize, maxPoolSize, 5, null);
         }
 
-        public Config addThreadPoolWorker(Supplier<ThreadPoolExecutor> threadPoolFactory, Object flag) {
+        public Config addThreadPoolWorker(Supplier<ThreadPoolExecutor> threadPoolFactory, String flag) {
             checkReadonly();
             Objects.requireNonNull(threadPoolFactory, "线程池工厂不能为空");
             threadPoolParams.add(new ThreadPoolParam(threadPoolFactory, flag));
@@ -545,18 +567,22 @@ public class Node {
             /**
              * 自定义标记
              */
-            private Object flag;
+            private String flag = "";
 
-            protected ThreadPoolParam(int corePoolSize, int maxThreadPoolSize, int threadPoolSizeFactor, Object flag) {
+            protected ThreadPoolParam(int corePoolSize, int maxThreadPoolSize, int threadPoolSizeFactor, String flag) {
                 this.corePoolSize = corePoolSize;
                 this.maxPoolSize = maxThreadPoolSize;
                 this.poolSizeFactor = threadPoolSizeFactor;
-                this.flag = flag;
+                if (flag != null) {
+                    this.flag = flag;
+                }
             }
 
-            protected ThreadPoolParam(Supplier<ThreadPoolExecutor> threadPoolFactory, Object flag) {
+            protected ThreadPoolParam(Supplier<ThreadPoolExecutor> threadPoolFactory, String flag) {
                 this.threadPoolFactory = threadPoolFactory;
-                this.flag = flag;
+                if (flag != null) {
+                    this.flag = flag;
+                }
             }
 
             public int getCorePoolSize() {
@@ -575,7 +601,7 @@ public class Node {
                 return threadPoolFactory;
             }
 
-            public Object getFlag() {
+            public String getFlag() {
                 return flag;
             }
         }

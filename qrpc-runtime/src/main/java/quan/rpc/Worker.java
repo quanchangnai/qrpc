@@ -78,8 +78,8 @@ public class Worker implements Executor {
         return id;
     }
 
-    public Object getFlag() {
-        return null;
+    public String getFlag() {
+        return node.getConfig().getSingleThreadWorkerFlagPrefix() + id;
     }
 
     public Node getNode() {
@@ -234,8 +234,9 @@ public class Worker implements Executor {
 
         long currentTime = System.currentTimeMillis();
         long updateIntervalTime = currentTime - updateStartTime;
+        int maxUpdateInterval = getNode().getConfig().getMaxUpdateInterval();
 
-        if (updateIntervalTime > getNode().getConfig().getMaxUpdateInterval() && currentTime - printUpdateIntervalTime > 5000) {
+        if (updateIntervalTime > maxUpdateInterval && currentTime - printUpdateIntervalTime > Math.max(5000, maxUpdateInterval * 10)) {
             printUpdateIntervalTime = currentTime;
             if (thread != null) {
                 StringBuilder sb = new StringBuilder();
