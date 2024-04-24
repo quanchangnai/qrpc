@@ -12,7 +12,7 @@ import quan.rpc.*;
 <#if comments?size gt 0>
  *
 </#if>
- *<#if !customProxyPath> @see</#if> ${name}
+ *<#if proxyLinkToService> @see</#if> ${name}
  */
 public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} extends ${superProxyName} {
 
@@ -26,49 +26,112 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
 
     <#if hasConstructor(1)>
         <#if hasTypeParameters()>
+    /**
+     * 无参服务代理单例
+     */
     public static final ${name}Proxy${typeParametersStr2} instance = new ${name}Proxy<>();
         <#else>
     public static final ${name}Proxy instance = new ${name}Proxy();
         </#if>
 
+    /**
+     * @see ProxyConstructors#NO_ARGS
+     */
     public ${name}Proxy() {
+    }
+
+    <#else>
+    protected ${name}Proxy() {
     }
 
     </#if>
     <#if hasConstructor(2)>
+    /**
+     * @see ProxyConstructors#NODE_ID
+     */
     public ${name}Proxy(int nodeId) {
-        _setNodeId$(nodeId);
+        setNodeId$(nodeId);
     }
 
     </#if>
     <#if hasConstructor(3)>
+    /**
+     * @see ProxyConstructors#SERVICE_ID
+     */
     public ${name}Proxy(${idType} serviceId) {
-        _setServiceId$(serviceId);
+        setServiceId$(serviceId);
     }
 
     </#if>
     <#if hasConstructor(4)>
+    /**
+     * @see ProxyConstructors#NODE_ID_AND_SERVICE_ID
+     */
     public ${name}Proxy(int nodeId, ${idType} serviceId) {
-        _setNodeId$(nodeId);
-        _setServiceId$(serviceId);
+        setNodeId$(nodeId);
+        setServiceId$(serviceId);
     }
 
     </#if>
     <#if hasConstructor(5)>
+    /**
+     * @see ProxyConstructors#NODE_ID_RESOLVER
+     */
     public ${name}Proxy(NodeIdResolver nodeIdResolver) {
-        _setNodeIdResolver$(nodeIdResolver);
+        setNodeIdResolver$(nodeIdResolver);
     }
 
     </#if>
     <#if hasConstructor(6)>
+    /**
+     * @see ProxyConstructors#NODE_ID_RESOLVER_AND_SERVICE_ID
+     */
     public ${name}Proxy(NodeIdResolver nodeIdResolver, ${idType} serviceId) {
-        _setNodeIdResolver$(nodeIdResolver);
-        _setServiceId$(serviceId);
+        setNodeIdResolver$(nodeIdResolver);
+        setServiceId$(serviceId);
+    }
+
+    </#if>
+    <#if hasConstructor(7)>
+    /**
+     * @see ProxyConstructors#SHARDING_KEY
+     */
+    <#if hasTypeParameters()>@SuppressWarnings("rawtypes")</#if>
+    public static ${name}Proxy newInstance$(Object shardingKey) {
+        ${name}Proxy instance = new ${name}Proxy();
+        instance.setShardingKey$(shardingKey);
+        return instance;
+    }
+
+    </#if>
+    <#if hasConstructor(8)>
+    /**
+     * @see ProxyConstructors#NODE_ID_AND_SHARDING_KEY
+     */
+    <#if hasTypeParameters()>@SuppressWarnings("rawtypes")</#if>
+    public static ${name}Proxy newInstance$(int nodeId, Object shardingKey) {
+        ${name}Proxy instance = new ${name}Proxy();
+        instance.setNodeId$(nodeId);
+        instance.setShardingKey$(shardingKey);
+        return instance;
+    }
+
+    </#if>
+    <#if hasConstructor(9)>
+    /**
+     * @see ProxyConstructors#SHARDING_KEY_AND_SERVICE_ID
+     */
+    <#if hasTypeParameters()>@SuppressWarnings("rawtypes")</#if>
+    public static ${name}Proxy newInstance$(Object shardingKey, ${idType} serviceId) {
+        ${name}Proxy instance = new ${name}Proxy();
+        instance.setShardingKey$(shardingKey);
+        instance.setServiceId$(serviceId);
+        return instance;
     }
 
     </#if>
     @Override
-    protected String _getServiceName$() {
+    protected String getServiceName$() {
         return SERVICE_NAME;
     }
 
@@ -80,14 +143,14 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
     <#if method.comments?size gt 0>
      *
     </#if>
-     *<#if !customProxyPath> @see</#if> ${name}#${method.signature}
+     *<#if proxyLinkToService> @see</#if> ${name}#${method.signature}
      */
     public <#if method.typeParametersStr!="">${method.typeParametersStr} </#if>Promise<${method.returnType}> ${method.name}(<#rt>
     <#list method.parameters?keys as paramName>
         ${method.parameters[paramName]} ${paramName}<#if paramName?has_next>, </#if><#t>
     </#list>
     <#lt>) {
-        return _sendRequest$(${method.id}, methodLabels[${method?index}], ${method.security}, ${method.expiredTime}<#rt>
+        return sendRequest$(${method.id}, methodLabels[${method?index}], ${method.security}, ${method.expiredTime}<#rt>
         <#lt><#if method.oneArrayParam>, (Object) ${method.parameters?keys?first}<#elseif method.parameters?keys?size gt 0>, ${method.parameters?keys?join(', ')}</#if>);
     }
 

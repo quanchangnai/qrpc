@@ -1,6 +1,11 @@
 package quan.rpc;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ServiceClass extends ServiceElement {
@@ -31,8 +36,8 @@ public class ServiceClass extends ServiceElement {
     //父类的泛型的类型参数
     protected String superTypeParameters;
 
-    //自定义代理代码的生成路径
-    private boolean customProxyPath;
+    //代理类和方法是否链接到服务类和方法
+    private boolean proxyLinkToService;
 
     public ServiceClass(String fullName) {
         this.fullName = fullName;
@@ -129,12 +134,12 @@ public class ServiceClass extends ServiceElement {
         this.idType = idType;
     }
 
-    public boolean isCustomProxyPath() {
-        return customProxyPath;
+    public boolean isProxyLinkToService() {
+        return proxyLinkToService;
     }
 
-    public void setCustomProxyPath(boolean customProxyPath) {
-        this.customProxyPath = customProxyPath;
+    public void setProxyLinkToService(boolean proxyLinkToService) {
+        this.proxyLinkToService = proxyLinkToService;
     }
 
 

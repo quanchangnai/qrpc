@@ -5,7 +5,15 @@ import org.slf4j.LoggerFactory;
 import quan.rpc.Protocol.Request;
 import quan.rpc.Protocol.Response;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -79,7 +87,7 @@ public class Worker implements Executor {
     }
 
     public String getFlag() {
-        return node.getConfig().getSingleThreadWorkerFlagPrefix() + id;
+        return node.getConfig().getSingleThreadWorkerFlag() + id;
     }
 
     public Node getNode() {
@@ -345,8 +353,8 @@ public class Worker implements Executor {
         Object serviceId;
 
         try {
-            targetNodeId = proxy._getNodeId$(this);
-            serviceId = proxy._getServiceId$(this);
+            targetNodeId = proxy.getNodeId$(this);
+            serviceId = proxy.getServiceId$(this);
         } catch (Exception e) {
             handleSendRequestError(promise, e);
             return;

@@ -14,7 +14,12 @@ import java.lang.reflect.Method;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -88,6 +93,7 @@ public class TimerMgr {
      * @param cron cron表达式
      */
     public Timer newTimer(Runnable task, String cron) {
+        Objects.requireNonNull(cron, "cron表达式不能为空");
         return addTimerTask(task, 0, 0, cron);
     }
 

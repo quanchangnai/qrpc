@@ -5,10 +5,22 @@ import com.sun.tools.javac.api.JavacTrees;
 import com.sun.tools.javac.file.PathFileObject;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
+import org.apache.commons.lang3.StringUtils;
 
-import javax.annotation.processing.*;
+import javax.annotation.processing.AbstractProcessor;
+import javax.annotation.processing.ProcessingEnvironment;
+import javax.annotation.processing.RoundEnvironment;
+import javax.annotation.processing.SupportedAnnotationTypes;
+import javax.annotation.processing.SupportedOptions;
+import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
-import javax.lang.model.element.*;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.TypeParameterElement;
+import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeKind;
@@ -17,14 +29,24 @@ import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
-import java.io.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.lang.annotation.Annotation;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-@SupportedOptions("rpcProxyPath")
+@SupportedOptions({"rpcProxyPath", "rpcProxyLinkToService"})
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 @SupportedAnnotationTypes({"quan.rpc.Endpoint", "quan.rpc.ProxyConstructors"})
 public class Generator extends AbstractProcessor {
@@ -43,9 +65,14 @@ public class Generator extends AbstractProcessor {
     private String proxyPath;
 
     /**
+     * 代理类和方法是否链接到服务类和方法
+     */
+    private String proxyLinkToService;
+
+    /**
      * 非法的服务方法名格式
      */
-    private final Pattern illegalMethodNamePattern = Pattern.compile("_.*\\$");
+    private final Pattern illegalMethodNamePattern = Pattern.compile(".*\\$");
 
     /**
      * 非法的服务方法修饰符
@@ -66,6 +93,8 @@ public class Generator extends AbstractProcessor {
         serviceType = types.erasure(elements.getTypeElement(Service.class.getName()).asType());
         promiseType = types.erasure(elements.getTypeElement(Promise.class.getName()).asType());
         proxyPath = processingEnv.getOptions().get("rpcProxyPath");
+        proxyLinkToService = processingEnv.getOptions().get("rpcProxyLinkToService");
+
 
         try {
             Configuration freemarkerCfg = new Configuration(Configuration.VERSION_2_3_23);
@@ -145,7 +174,12 @@ public class Generator extends AbstractProcessor {
         ServiceClass serviceClass = new ServiceClass(classElement.getQualifiedName().toString());
         serviceClass.setAbstract(classElement.getModifiers().contains(Modifier.ABSTRACT));
         serviceClass.setComment(elements.getDocComment(classElement));
-        serviceClass.setCustomProxyPath(proxyPath != null);
+
+        if (StringUtils.isBlank(proxyLinkToService)) {
+            serviceClass.setProxyLinkToService(StringUtils.isBlank(proxyPath));
+        } else {
+            serviceClass.setProxyLinkToService(Boolean.parseBoolean(proxyLinkToService));
+        }
 
         if (!classElement.getTypeParameters().isEmpty()) {
             serviceClass.setTypeParametersStr("<" + classElement.getTypeParameters() + ">");
@@ -358,11 +392,11 @@ public class Generator extends AbstractProcessor {
     private void generateProxy(ServiceClass serviceClass) throws IOException {
         Writer proxyWriter;
 
-        if (proxyPath == null) {
+        if (StringUtils.isBlank(proxyPath)) {
             JavaFileObject proxyFile = processingEnv.getFiler().createSourceFile(serviceClass.getFullName() + "Proxy");
             proxyWriter = proxyFile.openWriter();
         } else {
-            File path = new File(proxyPath, serviceClass.getPackageName().replace(".", "/"));
+            File path = new File(proxyPath.trim(), serviceClass.getPackageName().replace(".", "/"));
             //noinspection ResultOfMethodCallIgnored
             path.mkdirs();
             File file = new File(path, serviceClass.getName() + "Proxy.java");

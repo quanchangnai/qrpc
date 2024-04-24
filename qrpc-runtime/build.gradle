@@ -1,5 +1,6 @@
 compileTestJava {
 //    options.compilerArgs.add("-ArpcProxyPath=${projectDir}/src/test/java")
+//    options.compilerArgs.add("-ArpcProxyLinkToService=true")
 }
 
 dependencies {

@@ -5,13 +5,18 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.Executor;
 
+import static quan.rpc.ProxyConstructors.NODE_ID;
+import static quan.rpc.ProxyConstructors.NODE_ID_AND_SERVICE_ID;
+import static quan.rpc.ProxyConstructors.NO_ARGS;
+import static quan.rpc.ProxyConstructors.SERVICE_ID;
+
 /**
  * 支持远程方法调用的服务，被{@link Endpoint}标记的方法可以被远程调用
  *
  * @param <I> 服务ID的泛型
  * @author quanchangnai
  */
-@ProxyConstructors({1, 2, 3, 4})
+@ProxyConstructors({NO_ARGS, NODE_ID, SERVICE_ID, NODE_ID_AND_SERVICE_ID})
 public abstract class Service<I> implements Executor {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
@@ -95,7 +100,6 @@ public abstract class Service<I> implements Executor {
         return timerMgr.newTimer(task, cron);
     }
 
-
     public final <R> DelayedResult<R> newDelayedResult() {
         return worker.newDelayedResult();
     }
@@ -110,7 +114,6 @@ public abstract class Service<I> implements Executor {
      */
     protected void init() {
     }
-
 
     /**
      * 销毁

@@ -7,8 +7,18 @@ import org.slf4j.LoggerFactory;
 import quan.rpc.Protocol.Request;
 import quan.rpc.Protocol.Response;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -307,7 +317,10 @@ public class Node {
 
         private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
 
-        private String singleThreadWorkerFlagPrefix = "";
+        /**
+         * 单线程工作者自定义标记前缀
+         */
+        private String singleThreadWorkerFlag = "";
 
         private List<ThreadPoolParam> threadPoolParams = new ArrayList<>();
 
@@ -451,16 +464,16 @@ public class Node {
             return this;
         }
 
-        public Config setSingleThreadWorkerFlagPrefix(String singleThreadWorkerFlagPrefix) {
+        public Config setSingleThreadWorkerFlag(String singleThreadWorkerFlag) {
             checkReadonly();
-            if (singleThreadWorkerFlagPrefix != null) {
-                this.singleThreadWorkerFlagPrefix = singleThreadWorkerFlagPrefix;
+            if (singleThreadWorkerFlag != null) {
+                this.singleThreadWorkerFlag = singleThreadWorkerFlag;
             }
             return this;
         }
 
-        public String getSingleThreadWorkerFlagPrefix() {
-            return singleThreadWorkerFlagPrefix;
+        public String getSingleThreadWorkerFlag() {
+            return singleThreadWorkerFlag;
         }
 
         /**
@@ -565,7 +578,7 @@ public class Node {
             private Supplier<ThreadPoolExecutor> threadPoolFactory;
 
             /**
-             * 自定义标记
+             * 线程池工作者自定义标记
              */
             private String flag = "";
 
