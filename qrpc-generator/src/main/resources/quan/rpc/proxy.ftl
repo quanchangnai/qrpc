@@ -92,41 +92,12 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
     }
 
     </#if>
-    <#if hasConstructor(7)>
+    <#if hasConstructor(7) && idType!='Object'>
     /**
      * @see ProxyConstructors#SHARDING_KEY
      */
-    <#if hasTypeParameters()>@SuppressWarnings("rawtypes")</#if>
-    public static ${name}Proxy newInstance$(Object shardingKey) {
-        ${name}Proxy instance = new ${name}Proxy();
-        instance.setShardingKey$(shardingKey);
-        return instance;
-    }
-
-    </#if>
-    <#if hasConstructor(8)>
-    /**
-     * @see ProxyConstructors#NODE_ID_AND_SHARDING_KEY
-     */
-    <#if hasTypeParameters()>@SuppressWarnings("rawtypes")</#if>
-    public static ${name}Proxy newInstance$(int nodeId, Object shardingKey) {
-        ${name}Proxy instance = new ${name}Proxy();
-        instance.setNodeId$(nodeId);
-        instance.setShardingKey$(shardingKey);
-        return instance;
-    }
-
-    </#if>
-    <#if hasConstructor(9)>
-    /**
-     * @see ProxyConstructors#SHARDING_KEY_AND_SERVICE_ID
-     */
-    <#if hasTypeParameters()>@SuppressWarnings("rawtypes")</#if>
-    public static ${name}Proxy newInstance$(Object shardingKey, ${idType} serviceId) {
-        ${name}Proxy instance = new ${name}Proxy();
-        instance.setShardingKey$(shardingKey);
-        instance.setServiceId$(serviceId);
-        return instance;
+    public ${name}Proxy(Object shardingKey) {
+        setShardingKey$(shardingKey);
     }
 
     </#if>

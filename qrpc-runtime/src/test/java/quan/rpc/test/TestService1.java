@@ -3,16 +3,29 @@ package quan.rpc.test;
 import org.apache.commons.lang3.RandomUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import quan.rpc.Endpoint;
+import quan.rpc.Promise;
+import quan.rpc.ProxyConstructors;
+import quan.rpc.Service;
 import quan.rpc.Timer;
-import quan.rpc.*;
 
 import java.lang.annotation.ElementType;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static quan.rpc.ProxyConstructors.NODE_ID;
+import static quan.rpc.ProxyConstructors.NODE_ID_AND_SERVICE_ID;
+import static quan.rpc.ProxyConstructors.NODE_ID_RESOLVER_AND_SERVICE_ID;
+import static quan.rpc.ProxyConstructors.NO_ARGS;
+import static quan.rpc.ProxyConstructors.SERVICE_ID;
 
 /**
  * 测试服务1
  */
-@ProxyConstructors({1, 2, 3, 4, 6})
+@ProxyConstructors({NO_ARGS, NODE_ID, SERVICE_ID, NODE_ID_AND_SERVICE_ID, NODE_ID_RESOLVER_AND_SERVICE_ID})
 public class TestService1 extends Service<Integer> {
 
     private static Logger logger = LoggerFactory.getLogger(TestService1.class);

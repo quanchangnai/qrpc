@@ -201,6 +201,10 @@ public class Generator extends AbstractProcessor {
             serviceClass.setProxyConstructors(Arrays.stream(proxyConstructors.value()).boxed().collect(Collectors.toSet()));
         }
 
+        if (serviceClass.getIdType().equals(Object.class.getName()) && serviceClass.hasConstructor(ProxyConstructors.SHARDING_KEY)) {
+            warn("The id type is Object and conflicts with the sharding key", classElement);
+        }
+
         int methodId = getStartMethodId(classElement);
         Set<ExecutableElement> methodElements = getMethodElements(classElement);
 
@@ -223,7 +227,7 @@ public class Generator extends AbstractProcessor {
             serviceClass.prepare();
             generateProxy(serviceClass);
             generateInvoker(serviceClass);
-        } catch (IOException e) {
+        } catch (Exception e) {
             error(e);
         }
     }

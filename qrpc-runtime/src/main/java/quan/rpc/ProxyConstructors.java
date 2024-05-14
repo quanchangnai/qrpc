@@ -19,17 +19,17 @@ public @interface ProxyConstructors {
     int[] value();
 
     /**
-     * 无参构造服务代理，目标节点ID和服务ID需要通用的{@link NodeIdResolver}和{@link ServiceIdResolver}解析出来
+     * 无参构造服务代理，目标节点ID和服务ID需要{@link NodeIdResolver}和{@link ServiceIdResolver}解析出来
      */
     int NO_ARGS = 1;
 
     /**
-     * 指定[节点ID]构造服务代理，目标服务ID需要通用的{@link ServiceIdResolver}解析出来
+     * 指定[节点ID]构造服务代理，目标服务ID需要{@link ServiceIdResolver}解析出来
      */
     int NODE_ID = 2;
 
     /**
-     * 指定[服务ID]构造服务代理，目标节点ID需要通用的{@link NodeIdResolver}解析出来
+     * 指定[服务ID]构造服务代理，目标节点ID需要{@link NodeIdResolver}解析出来
      */
     int SERVICE_ID = 3;
 
@@ -49,17 +49,8 @@ public @interface ProxyConstructors {
     int NODE_ID_RESOLVER_AND_SERVICE_ID = 6;
 
     /**
-     * 指定[分片键]构造服务代理，目标节点ID和服务ID需要通用的{@link NodeIdResolver}和{@link ServiceIdResolver}使用[分片键]计算出来
+     * 指定[分片键]构造服务代理，目标节点ID和服务ID需要{@link NodeIdResolver}和{@link ServiceIdResolver}使用[分片键]计算出来
      */
     int SHARDING_KEY = 7;
 
-    /**
-     * 指定[节点ID]和[分片键]构造服务代理，目标服务ID需要通用的{@link ServiceIdResolver}使用[分片键]计算出来
-     */
-    int NODE_ID_AND_SHARDING_KEY = 8;
-
-    /**
-     * 指定[分片键]和[服务ID]构造服务代理，目标节点ID需要通用的{@link NodeIdResolver}使用[分片键]计算出来
-     */
-    int SHARDING_KEY_AND_SERVICE_ID = 9;
 }
