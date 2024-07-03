@@ -1,6 +1,12 @@
 package quan.rpc;
 
-import com.rabbitmq.client.*;
+import com.rabbitmq.client.AMQP;
+import com.rabbitmq.client.BuiltinExchangeType;
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.DefaultConsumer;
+import com.rabbitmq.client.Envelope;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import quan.rpc.Protocol.Request;
 
@@ -171,6 +177,11 @@ public class RabbitConnector extends Connector {
     }
 
     @Override
+    protected boolean isRemoteConnected(int remoteId) {
+        return true;
+    }
+
+    @Override
     protected void sendProtocol(int remoteId, Protocol protocol) {
         Worker worker = Worker.current();
         //异步发送，防止阻塞线程工作者
@@ -183,7 +194,7 @@ public class RabbitConnector extends Connector {
                 String error = String.format("发送协议到远程节点[%s]出错", remoteId);
                 if (protocol instanceof Request) {
                     long callId = ((Request) protocol).getCallId();
-                    CallException callException = new CallException(error, e);
+                    CallException callException = new CallException(error, e, CallException.Reason.SEND_ERROR);
                     worker.execute(() -> worker.handleResponse(callId, null, callException));
                 } else {
                     logger.error("{}:{}", error, protocol, e);

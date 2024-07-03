@@ -93,6 +93,7 @@ public abstract class Proxy {
         }
 
         ServiceIdResolver serviceIdResolver = worker.getNode().getConfig().getServiceIdResolver();
+
         if (serviceIdResolver != null) {
             Object _serviceId = serviceIdResolver.resolveServiceId(this);
             if (_serviceId != null) {

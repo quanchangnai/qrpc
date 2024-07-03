@@ -154,7 +154,6 @@ public class Node {
         } catch (Exception e) {
             logger.error("节点[]刷帧出错", id, e);
         }
-
     }
 
     public long getTime() {
@@ -218,11 +217,16 @@ public class Node {
     protected void sendProtocol(int remoteId, Protocol protocol) {
         for (Connector connector : connectors) {
             if (connector.isLegalRemote(remoteId)) {
-                connector.sendProtocol(remoteId, protocol);
-                return;
+                if (connector.isRemoteConnected(remoteId)) {
+                    connector.sendProtocol(remoteId, protocol);
+                    return;
+                } else {
+                    throw new CallException(String.format("远程节点[%s]的连接未建立或者断了", remoteId), CallException.Reason.DISCONNECTED);
+                }
             }
         }
-        throw new IllegalArgumentException(String.format("远程节点[%s]不存在", remoteId));
+
+        throw new CallException(String.format("远程节点[%s]不存在", remoteId), CallException.Reason.INVALID_NODE);
     }
 
     /**
@@ -233,11 +237,7 @@ public class Node {
             //本地节点直接处理
             handleRequest(request, security);
         } else {
-            try {
-                sendProtocol(targetNodeId, request);
-            } catch (Exception e) {
-                throw new CallException(String.format("发送协议到远程节点[%s]出错", targetNodeId), e);
-            }
+            sendProtocol(targetNodeId, request);
         }
     }
 
@@ -254,8 +254,7 @@ public class Node {
             logger.error("处理RPC请求,服务[{}]不存在,callId:{},originNodeId:{}", serviceId, callId, originNodeId);
             sendResponse(originNodeId, callId, null, String.format("服务[%s]不存在", serviceId));
         } else {
-            Worker worker = service.getWorker();
-            worker.execute(() -> worker.handleRequest(request, security));
+            service.getWorker().handleRequest(request, security);
         }
     }
 
@@ -286,7 +285,7 @@ public class Node {
         if (worker == null) {
             logger.error("处理RPC响应,线程工作者[{}]不存在,callId:{},originNodeId:{}", workerId, callId, response.getOriginNodeId());
         } else {
-            worker.execute(() -> worker.handleResponse(response));
+            worker.handleResponse(response);
         }
     }
 

@@ -337,7 +337,7 @@ public class Worker implements Executor {
 
         Promise<Object> promise = new Promise<>(this);
         promise.setCallId(callId);
-        promise.setMethod(methodLabel);
+        promise.setMethodInfo(methodLabel);
         promise.calcExpiredTime(expiredTime);
 
         mappedPromises.put(callId, promise);
@@ -361,7 +361,7 @@ public class Worker implements Executor {
         }
 
         if (promise.isExpired()) {
-            logger.error("发送RPC请求,已过期无需发送,targetNodeId:{},serviceId:{},method:{}", targetNodeId, serviceId, promise.getMethod());
+            logger.error("发送RPC请求,已过期无需发送,targetNodeId:{},serviceId:{},methodInfo:{}", targetNodeId, serviceId, promise.getMethodInfo());
             return;
         }
 
@@ -384,11 +384,8 @@ public class Worker implements Executor {
     private void handleSendRequestError(Promise<Object> promise, Exception e) {
         mappedPromises.remove(promise.getCallId());
         sortedPromises.remove(promise);
-        execute(() -> promise.setException(e));
-    }
-
-    protected Object cloneObject(Object object) {
-        return SerializeUtils.clone(object, true);
+        CallException callException = e instanceof CallException ? (CallException) e : new CallException(e, CallException.Reason.SEND_ERROR);
+        execute(() -> promise.setException(callException));
     }
 
     /**
@@ -426,7 +423,21 @@ public class Worker implements Executor {
         }
     }
 
+    protected Object cloneObject(Object object) {
+        return SerializeUtils.clone(object, true);
+    }
+
     protected void handleRequest(Request request, int security) {
+        execute(() -> {
+            try {
+                handleRequest0(request, security);
+            } catch (Exception e) {
+                logger.error("处理RPC请求出错,callId:{},originNodeId:{}", request.getCallId(), request.getOriginNodeId());
+            }
+        });
+    }
+
+    private void handleRequest0(Request request, int security) {
         int originNodeId = request.getOriginNodeId();
         long callId = request.getCallId();
         Object serviceId = request.getServiceId();
@@ -447,8 +458,11 @@ public class Worker implements Executor {
             result = invoker.invoke(service, methodId, request.getParams());
         } catch (Throwable e) {
             logger.error("处理RPC请求,方法执行出错,callId:{},originNodeId:{}", callId, originNodeId, e);
-            Object exception = toResponseException(originNodeId, e);
-            node.sendResponse(originNodeId, callId, null, exception);
+            if (originNodeId != this.node.getId() && this.node.getConfig().isThrowExceptionToRemote()) {
+                node.sendResponse(originNodeId, callId, null, e);
+            } else {
+                node.sendResponse(originNodeId, callId, null, e.toString());
+            }
             return;
         }
 
@@ -460,8 +474,8 @@ public class Worker implements Executor {
         Promise<?> promise = (Promise<?>) result;
 
         if (promise instanceof DelayedResult) {
-            if (promise.getMethod() == null) {
-                promise.setMethod(invoker.getMethodLabel(methodId));
+            if (promise.getMethodInfo() == null) {
+                promise.setMethodInfo(invoker.getMethodLabel(methodId));
                 int expiredTime = invoker.getExpiredTime(methodId);
                 if (expiredTime > 0) {
                     promise.calcExpiredTime(expiredTime);
@@ -470,18 +484,24 @@ public class Worker implements Executor {
                     sortedPromises.add(promise);
                 }
             } else {
-                logger.error("处理RPC请求,方法不能返回已被使用过的{},method:", promise.getClass().getSimpleName(), invoker.getMethodLabel(methodId));
+                logger.error("处理RPC请求,方法不能返回已被使用过的{},methodLabel:", promise.getClass().getSimpleName(), invoker.getMethodLabel(methodId));
             }
         }
 
-        promise._completely(() -> {
+        promise.completely0(() -> {
             if (promise instanceof DelayedResult && !sortedPromises.remove(promise)) {
                 return;
             }
 
-            Object realResult = makeSafeResult(originNodeId, security, promise.getResult());
-            Object exception = toResponseException(originNodeId, promise);
-            node.sendResponse(originNodeId, callId, realResult, exception);
+            Object safeResult = makeSafeResult(originNodeId, security, promise.getResult());
+
+            if (promise.isOK()) {
+                node.sendResponse(originNodeId, callId, safeResult, null);
+            } else if (originNodeId != this.node.getId() && this.node.getConfig().isThrowExceptionToRemote()) {
+                node.sendResponse(originNodeId, callId, safeResult, promise.getException());
+            } else {
+                node.sendResponse(originNodeId, callId, safeResult, promise.getExceptionStr());
+            }
         });
     }
 
@@ -491,25 +511,17 @@ public class Worker implements Executor {
         return delayedResult;
     }
 
-    private Object toResponseException(int targetNodeId, Throwable e) {
-        if (targetNodeId != this.node.getId() && this.node.getConfig().isThrowExceptionToRemote()) {
-            return e;
-        } else {
-            return e.toString();
-        }
-    }
-
-    private Object toResponseException(int targetNodeId, Promise<?> promise) {
-        if (!promise.isFailed()) {
-            return null;
-        } else if (targetNodeId != this.node.getId() && this.node.getConfig().isThrowExceptionToRemote()) {
-            return promise.getException();
-        } else {
-            return promise.getExceptionStr();
-        }
-    }
-
     protected void handleResponse(Response response) {
+        execute(() -> {
+            try {
+                handleResponse0(response);
+            } catch (Exception e) {
+                logger.error("处理RPC响应出错,callId:{},originNodeId:{}", response.getCallId(), response.getOriginNodeId());
+            }
+        });
+    }
+
+    private void handleResponse0(Response response) {
         long callId = response.getCallId();
         if (!mappedPromises.containsKey(callId)) {
             logger.error("处理RPC响应,调用不存在,callId:{},originNodeId:{}", callId, response.getOriginNodeId());
@@ -519,8 +531,10 @@ public class Worker implements Executor {
                 handleResponse(callId, response.getResult(), null);
             } else {
                 Promise<?> promise = mappedPromises.get(callId);
-                CallException callException = exception instanceof Throwable ? new CallException((Throwable) exception) : new CallException(exception.toString());
-                promise.fillCallInfo(callException);
+                CallException callException = exception instanceof Throwable ?
+                        new CallException((Throwable) exception, CallException.Reason.REMOTE_ERROR) :
+                        new CallException(exception.toString(), CallException.Reason.REMOTE_ERROR);
+                promise.setCallInfo(callException);
                 handleResponse(callId, null, callException);
             }
         }

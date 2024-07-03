@@ -24,7 +24,15 @@ public abstract class Connector {
 
     protected abstract void stop();
 
+    /**
+     * 是不是合法有效的远程节点
+     */
     protected abstract boolean isLegalRemote(int remoteId);
+
+    /**
+     * 远程节点是不是已建立连接
+     */
+    protected abstract boolean isRemoteConnected(int remoteId);
 
     protected abstract void sendProtocol(int remoteId, Protocol protocol);
 
@@ -39,12 +47,12 @@ public abstract class Connector {
     }
 
     protected void encode(Protocol protocol, OutputStream os) {
-        SerializeUtils.serialize(protocol, os,true);
+        SerializeUtils.serialize(protocol, os, true);
     }
 
     protected byte[] encode(Protocol protocol) {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
-        encode(protocol,os);
+        encode(protocol, os);
         return os.toByteArray();
     }
 

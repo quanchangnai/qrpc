@@ -47,10 +47,13 @@ public class Promise<R> implements Comparable<Promise<?>> {
     private int nodeId;
 
     /**
-     * 被调用的方法
+     * 目标方法信息
      */
-    private String method;
+    private String methodInfo;
 
+    /**
+     * 所属工作者
+     */
     protected final Worker worker;
 
     /**
@@ -91,12 +94,12 @@ public class Promise<R> implements Comparable<Promise<?>> {
         this.nodeId = nodeId;
     }
 
-    protected String getMethod() {
-        return method;
+    protected String getMethodInfo() {
+        return methodInfo;
     }
 
-    protected void setMethod(String method) {
-        this.method = method;
+    protected void setMethodInfo(String methodInfo) {
+        this.methodInfo = methodInfo;
     }
 
     public Worker getWorker() {
@@ -142,16 +145,16 @@ public class Promise<R> implements Comparable<Promise<?>> {
         Objects.requireNonNull(e);
 
         if (e instanceof CallException) {
-            fillCallInfo((CallException) e);
+            setCallInfo((CallException) e);
         }
 
         future.completeExceptionally(e);
     }
 
-    protected void fillCallInfo(CallException callException) {
+    protected void setCallInfo(CallException callException) {
         callException.setCallId(callId);
         callException.setNodeId(nodeId);
-        callException.setMethod(method);
+        callException.setMethodInfo(methodInfo);
     }
 
     protected Throwable getException() {
@@ -159,7 +162,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
             try {
                 future.get();
             } catch (Throwable e) {
-                return realException(e);
+                return toActualException(e);
             }
         }
 
@@ -173,9 +176,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
 
     protected void expire() {
         if (!isDone()) {
-            CallException callException = new CallException(null, true);
-            fillCallInfo(callException);
-            setException(callException);
+            setException(new CallException(CallException.Reason.TIME_OUT));
         }
     }
 
@@ -196,14 +197,14 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     public static Promise<Void> allOf(Promise<?>... promises) {
-        return new Promise<>(Worker.current(), CompletableFuture.allOf(getFutures(promises)));
+        return new Promise<>(Worker.current(), CompletableFuture.allOf(toFutures(promises)));
     }
 
     public static Promise<Object> anyOf(Promise<?>... promises) {
-        return new Promise<>(Worker.current(), CompletableFuture.anyOf(getFutures(promises)));
+        return new Promise<>(Worker.current(), CompletableFuture.anyOf(toFutures(promises)));
     }
 
-    private static CompletableFuture<?>[] getFutures(Promise<?>... promises) {
+    private static CompletableFuture<?>[] toFutures(Promise<?>... promises) {
         CompletableFuture<?>[] futures = new CompletableFuture[promises.length];
         for (int i = 0; i < promises.length; i++) {
             futures[i] = promises[i].future;
@@ -259,7 +260,6 @@ public class Promise<R> implements Comparable<Promise<?>> {
      * @param handler 结果处理器，处理结果并返回另一个带结果的Promise
      * @return 一个新的Promise，其结果和参数handler返回的Promise一样
      */
-
     public <U> Promise<U> thenCompose(Function<? super R, ? extends Promise<U>> handler) {
         checkHandler(handler);
         return new Promise<>(worker, future.thenCompose(r -> {
@@ -282,7 +282,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
         future.whenComplete((r, e1) -> {
             try {
                 if (e1 != null) {
-                    handler.accept(realException(e1));
+                    handler.accept(toActualException(e1));
                 }
                 p.future.complete(null);
             } catch (Throwable e2) {
@@ -296,18 +296,18 @@ public class Promise<R> implements Comparable<Promise<?>> {
 
 
     /**
-     * 用来设置异步调用返回后的最终处理器,不管是成功返回还是异常返回，类似finally代码块
+     * 用来设置异步调用返回后的最终处理器，不管是成功返回还是异常返回，类似finally代码块
      *
      * @param handler 该处理器不应该再抛出异常，但是如果抛出了异常，该异常将优先往后传递
      * @return 一个新的Promise，用于处理参数handler的执行情况
      */
     public Promise<Void> completely(Runnable handler) {
         checkHandler(handler);
-        return _completely(handler);
+        return completely0(handler);
     }
 
-    protected Promise<Void> _completely(Runnable handler) {
-        Objects.requireNonNull(handler, "处理器不能为空");
+    protected Promise<Void> completely0(Runnable handler) {
+        this.handler = Objects.requireNonNull(handler, "处理器不能为空");
         Promise<Void> p = new Promise<>(worker);
 
         future.whenComplete((r, e1) -> {
@@ -341,10 +341,10 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     private void printException(Throwable e) {
-        logger.error("未处理异常", realException(e));
+        logger.error("未处理异常", toActualException(e));
     }
 
-    private static Throwable realException(Throwable e) {
+    private static Throwable toActualException(Throwable e) {
         while (e instanceof CompletionException || e instanceof ExecutionException) {
             Throwable cause = e.getCause();
             if (cause != null) {
@@ -366,7 +366,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
     public String toString() {
         return getClass().getSimpleName() + "{" +
                 "callId=" + callId +
-                ", methodLabel='" + method + '\'' +
+                ", methodInfo='" + methodInfo + '\'' +
                 '}';
     }
 

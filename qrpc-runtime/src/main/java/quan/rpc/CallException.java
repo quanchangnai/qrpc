@@ -2,6 +2,8 @@ package quan.rpc;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Objects;
+
 /**
  * 远程调用异常
  *
@@ -19,38 +21,40 @@ public class CallException extends RuntimeException {
     /**
      * 目标方法信息
      */
-    private String method;
+    private String methodInfo;
 
-    private boolean timeout;
+    private Reason reason;
 
     private String message;
 
-    public CallException() {
+    public CallException(Reason reason) {
+        this.reason = Objects.requireNonNull(reason);
     }
 
-    public CallException(String message) {
+    public CallException(String message, Reason reason) {
         super(message);
+        this.reason = Objects.requireNonNull(reason);
     }
 
-    public CallException(String message, boolean timeout) {
-        super(message);
-        this.timeout = timeout;
-    }
-
-    public CallException(Throwable cause) {
+    public CallException(Throwable cause, Reason reason) {
         super(cause);
+        this.reason = Objects.requireNonNull(reason);
     }
 
-    public CallException(String message, Throwable cause) {
+    public CallException(String message, Throwable cause, Reason reason) {
         super(message == null ? cause.toString() : message, cause);
+        this.reason = Objects.requireNonNull(reason);
     }
-
 
     protected void setCallId(long callId) {
         this.callId = callId;
     }
 
-    protected int getNodeId() {
+    public long getCallId() {
+        return callId;
+    }
+
+    public int getNodeId() {
         return nodeId;
     }
 
@@ -58,12 +62,16 @@ public class CallException extends RuntimeException {
         this.nodeId = nodeId;
     }
 
-    protected void setMethod(String method) {
-        this.method = method;
+    protected void setMethodInfo(String methodInfo) {
+        this.methodInfo = methodInfo;
     }
 
-    public boolean isTimeout() {
-        return timeout;
+    public String getMethodInfo() {
+        return methodInfo;
+    }
+
+    public Reason getReason() {
+        return reason;
     }
 
     @Override
@@ -72,13 +80,7 @@ public class CallException extends RuntimeException {
             return message;
         }
 
-        message = "调用方法";
-
-        if (timeout) {
-            message += "超时";
-        } else {
-            message += "异常返回";
-        }
+        message = "调用方法失败";
 
         if (callId > 0) {
             message += ",callId:" + callId;
@@ -87,15 +89,47 @@ public class CallException extends RuntimeException {
         if (nodeId > 0) {
             message += ",目标节点:" + nodeId;
         }
-        if (method != null) {
-            message += ",方法:" + method;
+
+        if (methodInfo != null) {
+            message += ",目标方法:" + methodInfo;
         }
 
+        message += ",原因:" + reason;
+
         if (!StringUtils.isBlank(super.getMessage())) {
-            message += ",原因:" + super.getMessage();
+            message += ",详情:" + super.getMessage();
         }
 
         return message;
+    }
+
+    public enum Reason {
+
+        /**
+         * 目标节点无效
+         */
+        INVALID_NODE,
+
+        /**
+         * 远程节点的连接断开了
+         */
+        DISCONNECTED,
+
+        /**
+         * 发送协议出错
+         */
+        SEND_ERROR,
+
+        /**
+         * 远程错误，一般是目标方法执行出错
+         */
+        REMOTE_ERROR,
+
+        /**
+         * 等待超时
+         */
+        TIME_OUT,
+
     }
 
 }

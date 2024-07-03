@@ -5,7 +5,14 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.ByteBufOutputStream;
-import io.netty.channel.*;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -124,6 +131,12 @@ public class NettyConnector extends Connector {
     @Override
     protected boolean isLegalRemote(int remoteId) {
         return remoteIds.contains(remoteId);
+    }
+
+    @Override
+    protected boolean isRemoteConnected(int remoteId) {
+        Sender sender = senders.get(remoteId);
+        return sender != null && sender.context != null;
     }
 
     @Override
@@ -384,7 +397,8 @@ public class NettyConnector extends Connector {
 
         protected void sendProtocol(Protocol protocol) {
             if (context == null) {
-                throw new IllegalStateException(String.format("远程节点[%s]的连接还未建立", id));
+                //TODO 缓存等待重连？
+                throw new IllegalStateException(String.format("远程节点[%s]的连接断了", id));
             } else {
                 try {
                     connector.sendProtocol(context, protocol);
