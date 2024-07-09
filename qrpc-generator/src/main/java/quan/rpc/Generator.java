@@ -1,8 +1,5 @@
 package quan.rpc;
 
-import com.sun.source.tree.CompilationUnitTree;
-import com.sun.tools.javac.api.JavacTrees;
-import com.sun.tools.javac.file.PathFileObject;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 import org.apache.commons.lang3.StringUtils;
@@ -59,6 +56,8 @@ public class Generator extends AbstractProcessor {
 
     private TypeMirror promiseType;
 
+    private SourceLineResolver sourceLineResolver;
+
     /**
      * 自定义代理类的生成路径
      */
@@ -94,7 +93,7 @@ public class Generator extends AbstractProcessor {
         promiseType = types.erasure(elements.getTypeElement(Promise.class.getName()).asType());
         proxyPath = processingEnv.getOptions().get("rpcProxyPath");
         proxyLinkToService = processingEnv.getOptions().get("rpcProxyLinkToService");
-
+        sourceLineResolver = SourceLineResolver.newInstance();
 
         try {
             Configuration freemarkerCfg = new Configuration(Configuration.VERSION_2_3_23);
@@ -171,37 +170,37 @@ public class Generator extends AbstractProcessor {
             return;
         }
 
-        ServiceClass serviceClass = new ServiceClass(classElement.getQualifiedName().toString());
-        serviceClass.setAbstract(classElement.getModifiers().contains(Modifier.ABSTRACT));
-        serviceClass.setComment(elements.getDocComment(classElement));
+        ServiceClassDefinition serviceClassDefinition = new ServiceClassDefinition(classElement.getQualifiedName().toString());
+        serviceClassDefinition.setAbstract(classElement.getModifiers().contains(Modifier.ABSTRACT));
+        serviceClassDefinition.setComment(elements.getDocComment(classElement));
 
         if (StringUtils.isBlank(proxyLinkToService)) {
-            serviceClass.setProxyLinkToService(StringUtils.isBlank(proxyPath));
+            serviceClassDefinition.setProxyLinkToService(StringUtils.isBlank(proxyPath));
         } else {
-            serviceClass.setProxyLinkToService(Boolean.parseBoolean(proxyLinkToService));
+            serviceClassDefinition.setProxyLinkToService(Boolean.parseBoolean(proxyLinkToService));
         }
 
         if (!classElement.getTypeParameters().isEmpty()) {
-            serviceClass.setTypeParametersStr("<" + classElement.getTypeParameters() + ">");
-            serviceClass.setTypeParameterBounds(processTypeParameterBounds(classElement.getTypeParameters()));
+            serviceClassDefinition.setTypeParametersStr("<" + classElement.getTypeParameters() + ">");
+            serviceClassDefinition.setTypeParameterBounds(processTypeParameterBounds(classElement.getTypeParameters()));
         }
 
         DeclaredType superClassType = (DeclaredType) classElement.getSuperclass();
         TypeElement superClassElement = (TypeElement) superClassType.asElement();
-        serviceClass.setSuperName(superClassElement.getQualifiedName().toString());
+        serviceClassDefinition.setSuperName(superClassElement.getQualifiedName().toString());
         if (!superClassType.getTypeArguments().isEmpty()) {
-            serviceClass.setSuperTypeParameters(("<" + superClassType.getTypeArguments() + ">").replace(",", ", "));
+            serviceClassDefinition.setSuperTypeParameters(("<" + superClassType.getTypeArguments() + ">").replace(",", ", "));
         }
 
         TypeMirror serviceIdType = getServiceIdType(classElement);
-        serviceClass.setIdType(serviceIdType.toString());
+        serviceClassDefinition.setIdType(serviceIdType.toString());
 
         ProxyConstructors proxyConstructors = classElement.getAnnotation(ProxyConstructors.class);
         if (proxyConstructors != null) {
-            serviceClass.setProxyConstructors(Arrays.stream(proxyConstructors.value()).boxed().collect(Collectors.toSet()));
+            serviceClassDefinition.setProxyConstructors(Arrays.stream(proxyConstructors.value()).boxed().collect(Collectors.toSet()));
         }
 
-        if (serviceClass.getIdType().equals(Object.class.getName()) && serviceClass.hasConstructor(ProxyConstructors.SHARDING_KEY)) {
+        if (serviceClassDefinition.getIdType().equals(Object.class.getName()) && serviceClassDefinition.hasConstructor(ProxyConstructors.SHARDING_KEY)) {
             warn("The id type is Object and conflicts with the sharding key", classElement);
         }
 
@@ -217,16 +216,16 @@ public class Generator extends AbstractProcessor {
                 warn("Endpoint method cant not declare one of " + illegalMethodModifiers, methodElement);
             }
 
-            ServiceMethod serviceMethod = processServiceMethod(methodElement);
-            serviceMethod.setId(methodId++);
-            serviceMethod.setServiceClass(serviceClass);
-            serviceClass.getMethods().add(serviceMethod);
+            ServiceMethodDefinition serviceMethodDefinition = processServiceMethod(methodElement);
+            serviceMethodDefinition.setId(methodId++);
+            serviceMethodDefinition.setServiceClass(serviceClassDefinition);
+            serviceClassDefinition.getMethods().add(serviceMethodDefinition);
         }
 
         try {
-            serviceClass.prepare();
-            generateProxy(serviceClass);
-            generateInvoker(serviceClass);
+            serviceClassDefinition.prepare();
+            generateProxy(serviceClassDefinition);
+            generateInvoker(serviceClassDefinition);
         } catch (Exception e) {
             error(e);
         }
@@ -304,23 +303,6 @@ public class Generator extends AbstractProcessor {
         return superStartMethodId + superMethodElements.size();
     }
 
-    /**
-     * 获取元素所在源文件以及行号
-     * 参考 jdk.javadoc.internal.tool.Messager#getDiagSource(Element)
-     */
-    private String getSourceLine(Element element) {
-        try {
-            JavacTrees javacTrees = JavacTrees.instance(processingEnv);
-            CompilationUnitTree cut = javacTrees.getPath(element).getCompilationUnit();
-            long sourcePosition = javacTrees.getSourcePositions().getStartPosition(cut, javacTrees.getTree(element));
-            long lineNumber = cut.getLineMap().getLineNumber(sourcePosition);
-            String fileName = PathFileObject.getSimpleName(cut.getSourceFile());
-            return fileName + ":" + lineNumber;
-        } catch (Throwable e) {
-            return null;
-        }
-    }
-
     private LinkedHashMap<String, List<String>> processTypeParameterBounds(List<? extends TypeParameterElement> typeParameterElements) {
         LinkedHashMap<String, List<String>> typeParameters = new LinkedHashMap<>();
 
@@ -335,14 +317,14 @@ public class Generator extends AbstractProcessor {
         return typeParameters;
     }
 
-    private ServiceMethod processServiceMethod(ExecutableElement executableElement) {
-        ServiceMethod serviceMethod = new ServiceMethod(executableElement.getSimpleName());
-        serviceMethod.setComment(elements.getDocComment(executableElement));
-        serviceMethod.setSourceLine(getSourceLine(executableElement));
+    private ServiceMethodDefinition processServiceMethod(ExecutableElement executableElement) {
+        ServiceMethodDefinition serviceMethodDefinition = new ServiceMethodDefinition(executableElement.getSimpleName());
+        serviceMethodDefinition.setComment(elements.getDocComment(executableElement));
+        serviceMethodDefinition.setSourceLine(sourceLineResolver.resolveSourceLine(processingEnv, executableElement));
 
         if (!executableElement.getTypeParameters().isEmpty()) {
-            serviceMethod.setTypeParametersStr("<" + executableElement.getTypeParameters() + ">");
-            serviceMethod.setTypeParameterBounds(processTypeParameterBounds(executableElement.getTypeParameters()));
+            serviceMethodDefinition.setTypeParametersStr("<" + executableElement.getTypeParameters() + ">");
+            serviceMethodDefinition.setTypeParameterBounds(processTypeParameterBounds(executableElement.getTypeParameters()));
         }
 
         Endpoint endpoint = executableElement.getAnnotation(Endpoint.class);
@@ -358,7 +340,7 @@ public class Generator extends AbstractProcessor {
                 parameterTypeStr = parameterTypeStr.replace("[]", "...");
             }
 
-            serviceMethod.addParameter(parameter.getSimpleName(), parameterTypeStr);
+            serviceMethodDefinition.addParameter(parameter.getSimpleName(), parameterTypeStr);
             if (!ConstantUtils.isConstantType(parameterType)) {
                 safeArgs = false;
             }
@@ -367,13 +349,13 @@ public class Generator extends AbstractProcessor {
         TypeMirror returnType = executableElement.getReturnType();
 
         if (returnType.getKind().isPrimitive()) {
-            serviceMethod.setReturnType(types.boxedClass((PrimitiveType) returnType).asType().toString());
+            serviceMethodDefinition.setReturnType(types.boxedClass((PrimitiveType) returnType).asType().toString());
         } else if (returnType.getKind() == TypeKind.VOID) {
-            serviceMethod.setReturnType(Void.class.getSimpleName());
+            serviceMethodDefinition.setReturnType(Void.class.getSimpleName());
         } else if (types.isAssignable(types.erasure(returnType), promiseType)) {
-            serviceMethod.setReturnType(((DeclaredType) returnType).getTypeArguments().get(0).toString());
+            serviceMethodDefinition.setReturnType(((DeclaredType) returnType).getTypeArguments().get(0).toString());
         } else {
-            serviceMethod.setReturnType(returnType.toString());
+            serviceMethodDefinition.setReturnType(returnType.toString());
         }
 
         if (!safeArgs) {
@@ -385,30 +367,30 @@ public class Generator extends AbstractProcessor {
             safeReturn = endpoint.safeReturn();
         }
 
-        serviceMethod.setSafeArgs(safeArgs);
-        serviceMethod.setSafeReturn(safeReturn);
+        serviceMethodDefinition.setSafeArgs(safeArgs);
+        serviceMethodDefinition.setSafeReturn(safeReturn);
 
-        serviceMethod.setExpiredTime(endpoint.expiredTime());
+        serviceMethodDefinition.setExpiredTime(endpoint.expiredTime());
 
-        return serviceMethod;
+        return serviceMethodDefinition;
     }
 
-    private void generateProxy(ServiceClass serviceClass) throws IOException {
+    private void generateProxy(ServiceClassDefinition serviceClassDefinition) throws IOException {
         Writer proxyWriter;
 
         if (StringUtils.isBlank(proxyPath)) {
-            JavaFileObject proxyFile = processingEnv.getFiler().createSourceFile(serviceClass.getFullName() + "Proxy");
+            JavaFileObject proxyFile = processingEnv.getFiler().createSourceFile(serviceClassDefinition.getFullName() + "Proxy");
             proxyWriter = proxyFile.openWriter();
         } else {
-            File path = new File(proxyPath.trim(), serviceClass.getPackageName().replace(".", "/"));
+            File path = new File(proxyPath.trim(), serviceClassDefinition.getPackageName().replace(".", "/"));
             //noinspection ResultOfMethodCallIgnored
             path.mkdirs();
-            File file = new File(path, serviceClass.getName() + "Proxy.java");
+            File file = new File(path, serviceClassDefinition.getName() + "Proxy.java");
             proxyWriter = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8);
         }
 
         try {
-            proxyTemplate.process(serviceClass, proxyWriter);
+            proxyTemplate.process(serviceClassDefinition, proxyWriter);
         } catch (Exception e) {
             error(e);
         } finally {
@@ -417,11 +399,11 @@ public class Generator extends AbstractProcessor {
 
     }
 
-    private void generateInvoker(ServiceClass serviceClass) throws IOException {
-        JavaFileObject invokerFile = processingEnv.getFiler().createSourceFile(serviceClass.getFullName() + "Invoker");
+    private void generateInvoker(ServiceClassDefinition serviceClassDefinition) throws IOException {
+        JavaFileObject invokerFile = processingEnv.getFiler().createSourceFile(serviceClassDefinition.getFullName() + "Invoker");
 
         try (Writer invokerWriter = invokerFile.openWriter()) {
-            invokerTemplate.process(serviceClass, invokerWriter);
+            invokerTemplate.process(serviceClassDefinition, invokerWriter);
         } catch (Exception e) {
             error(e);
         }

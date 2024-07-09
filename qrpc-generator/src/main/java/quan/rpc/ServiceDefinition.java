@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public abstract class ServiceElement {
+public abstract class ServiceDefinition {
 
     private int id;
 
@@ -27,7 +27,7 @@ public abstract class ServiceElement {
      */
     protected LinkedHashMap<String, List<String>> typeParameterBounds = new LinkedHashMap<>();
 
-    protected ServiceClass serviceClass;
+    protected ServiceClassDefinition serviceClassDefinition;
 
     private Pattern simplifyableClassNamePattern;
 
@@ -60,8 +60,8 @@ public abstract class ServiceElement {
         }
     }
 
-    public ServiceClass getServiceClass() {
-        return serviceClass;
+    public ServiceClassDefinition getServiceClass() {
+        return serviceClassDefinition;
     }
 
     public String getTypeParametersStr() {
@@ -102,7 +102,7 @@ public abstract class ServiceElement {
 
         if (simplifyableClassNamePattern == null) {
             //java.lang等包下的类不需要使用全类名
-            List<String> defaultPackages = Arrays.asList("java.lang", "java.util", serviceClass.getPackageName());
+            List<String> defaultPackages = Arrays.asList("java.lang", "java.util", serviceClassDefinition.getPackageName());
 
             StringBuilder packagePatterns = new StringBuilder();
             for (String defaultPackage : defaultPackages) {

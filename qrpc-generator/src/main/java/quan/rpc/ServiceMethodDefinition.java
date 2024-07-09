@@ -6,7 +6,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-public class ServiceMethod extends ServiceElement {
+public class ServiceMethodDefinition extends ServiceDefinition {
 
     private int security;
 
@@ -22,7 +22,7 @@ public class ServiceMethod extends ServiceElement {
 
     private int expiredTime;
 
-    public ServiceMethod(CharSequence name) {
+    public ServiceMethodDefinition(CharSequence name) {
         this.name = name.toString();
     }
 
@@ -38,8 +38,8 @@ public class ServiceMethod extends ServiceElement {
         }
     }
 
-    public void setServiceClass(ServiceClass serviceClass) {
-        this.serviceClass = serviceClass;
+    public void setServiceClass(ServiceClassDefinition serviceClassDefinition) {
+        this.serviceClassDefinition = serviceClassDefinition;
     }
 
     public int getSecurity() {
@@ -114,7 +114,7 @@ public class ServiceMethod extends ServiceElement {
      */
     public boolean isGenericTypeVar(String parameterName) {
         String parameterType = parameters.get(parameterName);
-        return typeParameterBounds.containsKey(parameterType) || serviceClass.typeParameterBounds.containsKey(parameterType);
+        return typeParameterBounds.containsKey(parameterType) || serviceClassDefinition.typeParameterBounds.containsKey(parameterType);
     }
 
     /**
@@ -135,7 +135,7 @@ public class ServiceMethod extends ServiceElement {
         //泛型变量上界
         List<String> typeBounds = typeParameterBounds.get(parameterType);
         if (typeBounds == null || typeBounds.isEmpty()) {
-            typeBounds = serviceClass.typeParameterBounds.get(parameterType);
+            typeBounds = serviceClassDefinition.typeParameterBounds.get(parameterType);
         }
 
         if (typeBounds != null && !typeBounds.isEmpty()) {
@@ -153,7 +153,7 @@ public class ServiceMethod extends ServiceElement {
         StringBuilder sb = new StringBuilder();
         sb.append(name);
 
-        if (serviceClass.getSameNameMethods().get(name).size() == 1) {
+        if (serviceClassDefinition.getSameNameMethods().get(name).size() == 1) {
             return sb.toString();
         }
 
@@ -179,7 +179,7 @@ public class ServiceMethod extends ServiceElement {
 
     public String getLabel() {
         if (StringUtils.isBlank(sourceLine)) {
-            List<ServiceMethod> sameNameMethods = serviceClass.getSameNameMethods().get(name);
+            List<ServiceMethodDefinition> sameNameMethods = serviceClassDefinition.getSameNameMethods().get(name);
             if (sameNameMethods.size() == 1) {
                 return name;
             } else {

@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class ServiceClass extends ServiceElement {
+public class ServiceClassDefinition extends ServiceDefinition {
 
     private final String fullName;
 
@@ -17,10 +17,10 @@ public class ServiceClass extends ServiceElement {
     //是不是抽象类
     private boolean _abstract;
 
-    private final List<ServiceMethod> methods = new ArrayList<>();
+    private final List<ServiceMethodDefinition> methods = new ArrayList<>();
 
     //同名方法的数量
-    private final Map<String, List<ServiceMethod>> sameNameMethods = new HashMap<>();
+    private final Map<String, List<ServiceMethodDefinition>> sameNameMethods = new HashMap<>();
 
     //服务ID的类型
     private String idType;
@@ -39,7 +39,7 @@ public class ServiceClass extends ServiceElement {
     //代理类和方法是否链接到服务类和方法
     private boolean proxyLinkToService;
 
-    public ServiceClass(String fullName) {
+    public ServiceClassDefinition(String fullName) {
         this.fullName = fullName;
         int index = fullName.lastIndexOf(".");
         if (index > 0) {
@@ -48,7 +48,7 @@ public class ServiceClass extends ServiceElement {
         } else {
             this.name = fullName;
         }
-        this.serviceClass = this;
+        this.serviceClassDefinition = this;
     }
 
     public String getFullName() {
@@ -67,17 +67,17 @@ public class ServiceClass extends ServiceElement {
         this._abstract = _abstract;
     }
 
-    public List<ServiceMethod> getMethods() {
+    public List<ServiceMethodDefinition> getMethods() {
         return methods;
     }
 
-    public List<ServiceMethod> getMethods(boolean hasExpiredTime) {
+    public List<ServiceMethodDefinition> getMethods(boolean hasExpiredTime) {
         return methods.stream().filter(m -> hasExpiredTime == (m.getExpiredTime() > 0)).collect(Collectors.toList());
     }
 
-    public Map<String, List<ServiceMethod>> getSameNameMethods() {
+    public Map<String, List<ServiceMethodDefinition>> getSameNameMethods() {
         if (sameNameMethods.isEmpty()) {
-            for (ServiceMethod method : methods) {
+            for (ServiceMethodDefinition method : methods) {
                 sameNameMethods.computeIfAbsent(method.name, k -> new ArrayList<>()).add(method);
             }
         }
@@ -180,7 +180,7 @@ public class ServiceClass extends ServiceElement {
         super.prepare();
         idType = simplifyClassName(idType);
         superTypeParameters = simplifyClassName(superTypeParameters);
-        methods.forEach(ServiceMethod::prepare);
+        methods.forEach(ServiceMethodDefinition::prepare);
     }
 
     @Override
