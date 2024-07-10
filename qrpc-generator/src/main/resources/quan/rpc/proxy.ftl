@@ -18,12 +18,14 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
 
     public static final String SERVICE_NAME = "${fullName}";
 
-    private static final String[] methodLabels = {
+<#if methods?size gt 0>
+    private static final MethodInfo[] SERVICE_METHODS = {
         <#list methods as method>
-            SERVICE_NAME + ".${method.label}"<#if method?has_next>,</#if>
+            new MethodInfo(${method.id},SERVICE_NAME + ".getName(RoleService1.java:27)", ${method.safeArgs?c}, ${method.safeReturn?c}, ${method.expiredTime})<#if method?has_next>,</#if>
         </#list>
     };
 
+</#if>
     <#if hasConstructor(1)>
         <#if hasTypeParameters()>
     /**
@@ -121,8 +123,7 @@ public<#if abstract> abstract</#if> class ${name}Proxy${typeParametersStr} exten
         ${method.parameters[paramName]} ${paramName}<#if paramName?has_next>, </#if><#t>
     </#list>
     <#lt>) {
-        return sendRequest$(${method.id}, methodLabels[${method?index}], ${method.security}, ${method.expiredTime}<#rt>
-        <#lt><#if method.oneArrayParam>, (Object) ${method.parameters?keys?first}<#elseif method.parameters?keys?size gt 0>, ${method.parameters?keys?join(', ')}</#if>);
+        return sendRequest$(SERVICE_METHODS[${method?index}]<#if method.oneArrayParam>, (Object) ${method.parameters?keys?first}<#elseif method.parameters?keys?size gt 0>, ${method.parameters?keys?join(', ')}</#if>);
     }
 
 </#list>

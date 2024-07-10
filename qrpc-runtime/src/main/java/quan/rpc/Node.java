@@ -232,10 +232,10 @@ public class Node {
     /**
      * 发送RPC请求
      */
-    protected void sendRequest(int targetNodeId, Request request, int security) {
+    protected void sendRequest(int targetNodeId, Request request, boolean safeReturn) {
         if (targetNodeId == this.id || targetNodeId == 0) {
             //本地节点直接处理
-            handleRequest(request, security);
+            handleRequest(request, safeReturn);
         } else {
             sendProtocol(targetNodeId, request);
         }
@@ -244,7 +244,7 @@ public class Node {
     /**
      * 处理RPC请求
      */
-    protected void handleRequest(Request request, int security) {
+    protected void handleRequest(Request request, boolean safeReturn) {
         int originNodeId = request.getOriginNodeId();
         long callId = request.getCallId();
         Object serviceId = request.getServiceId();
@@ -254,12 +254,12 @@ public class Node {
             logger.error("处理RPC请求,服务[{}]不存在,callId:{},originNodeId:{}", serviceId, callId, originNodeId);
             sendResponse(originNodeId, callId, null, String.format("服务[%s]不存在", serviceId));
         } else {
-            service.getWorker().handleRequest(request, security);
+            service.getWorker().handleRequest(request, safeReturn);
         }
     }
 
     protected void handleRequest(Request request) {
-        handleRequest(request, 0b11);
+        handleRequest(request, true);
     }
 
     /**

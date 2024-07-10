@@ -185,9 +185,9 @@ public class ServiceClassDefinition extends ServiceDefinition {
 
     @Override
     public String toString() {
-        return "ServiceClass{" +
+        return getClass().getSimpleName() + "{" +
                 "name='" + name + '\'' +
-                "idType='" + idType + '\'' +
+                ", idType='" + idType + '\'' +
                 ", packageName='" + packageName + '\'' +
                 ", typeParameters=" + typeParametersStr +
                 ", comment='" + comment + '\'' +

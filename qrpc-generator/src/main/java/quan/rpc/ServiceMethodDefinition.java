@@ -8,12 +8,16 @@ import java.util.List;
 
 public class ServiceMethodDefinition extends ServiceDefinition {
 
-    private int security;
-
-    public String returnType;
-
-    //参数名:参数类型
+    /**
+     * 参数名:参数类型
+     */
     private final HashMap<String, String> parameters = new LinkedHashMap<>();
+
+    private String returnType;
+
+    private boolean safeArgs;
+
+    private boolean safeReturn;
 
     /**
      * 所在源文件以及行号
@@ -27,24 +31,17 @@ public class ServiceMethodDefinition extends ServiceDefinition {
     }
 
     public void setSafeArgs(boolean safeArgs) {
-        if (safeArgs) {
-            security |= 0b01;
-        }
+        this.safeArgs = safeArgs;
     }
 
     public void setSafeReturn(boolean safeReturn) {
-        if (safeReturn) {
-            security |= 0b10;
-        }
+        this.safeReturn = safeReturn;
     }
 
     public void setServiceClass(ServiceClassDefinition serviceClassDefinition) {
         this.serviceClassDefinition = serviceClassDefinition;
     }
 
-    public int getSecurity() {
-        return security;
-    }
 
     public String getReturnType() {
         return returnType;
@@ -64,6 +61,14 @@ public class ServiceMethodDefinition extends ServiceDefinition {
 
     public HashMap<String, String> getParameters() {
         return parameters;
+    }
+
+    public boolean isSafeArgs() {
+        return safeArgs;
+    }
+
+    public boolean isSafeReturn() {
+        return safeReturn;
     }
 
     public void setSourceLine(String sourceLine) {
@@ -208,13 +213,15 @@ public class ServiceMethodDefinition extends ServiceDefinition {
 
     @Override
     public String toString() {
-        return "ServiceMethod{" +
+        return getClass().getSimpleName() + "{" +
                 "name='" + name + '\'' +
-                ", comment='" + comment + '\'' +
-                ", sourceLine='" + sourceLine + '\'' +
                 ", typeParameters=" + typeParametersStr +
                 ", returnType='" + returnType + '\'' +
                 ", parameters=" + parameters +
+                ", safeArgs='" + safeArgs + '\'' +
+                ", safeReturn='" + safeReturn + '\'' +
+                ", sourceLine='" + sourceLine + '\'' +
+                ", comment='" + comment + '\'' +
                 '}';
     }
 

@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -162,7 +163,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
             try {
                 future.get();
             } catch (Throwable e) {
-                return toActualException(e);
+                return getActualException(e);
             }
         }
 
@@ -282,7 +283,7 @@ public class Promise<R> implements Comparable<Promise<?>> {
         future.whenComplete((r, e1) -> {
             try {
                 if (e1 != null) {
-                    handler.accept(toActualException(e1));
+                    handler.accept(getActualException(e1));
                 }
                 p.future.complete(null);
             } catch (Throwable e2) {
@@ -301,18 +302,26 @@ public class Promise<R> implements Comparable<Promise<?>> {
      * @param handler 该处理器不应该再抛出异常，但是如果抛出了异常，该异常将优先往后传递
      * @return 一个新的Promise，用于处理参数handler的执行情况
      */
-    public Promise<Void> completely(Runnable handler) {
+    public Promise<Void> completely(BiConsumer<? super R, ? super Throwable> handler) {
         checkHandler(handler);
         return completely0(handler);
     }
 
-    protected Promise<Void> completely0(Runnable handler) {
+    /**
+     * @see #completely(BiConsumer)
+     */
+    public Promise<Void> completely(Runnable handler) {
+        Objects.requireNonNull(handler, "处理器不能为空");
+        return completely((r, e) -> handler.run());
+    }
+
+    protected Promise<Void> completely0(BiConsumer<? super R, ? super Throwable> handler) {
         this.handler = Objects.requireNonNull(handler, "处理器不能为空");
         Promise<Void> p = new Promise<>(worker);
 
         future.whenComplete((r, e1) -> {
             try {
-                handler.run();
+                handler.accept(r, e1);
             } catch (Throwable e2) {
                 if (e1 != null) {
                     printException(e1);
@@ -341,10 +350,10 @@ public class Promise<R> implements Comparable<Promise<?>> {
     }
 
     private void printException(Throwable e) {
-        logger.error("未处理异常", toActualException(e));
+        logger.error("未处理异常", getActualException(e));
     }
 
-    private static Throwable toActualException(Throwable e) {
+    private static Throwable getActualException(Throwable e) {
         while (e instanceof CompletionException || e instanceof ExecutionException) {
             Throwable cause = e.getCause();
             if (cause != null) {

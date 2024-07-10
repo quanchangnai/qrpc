@@ -56,14 +56,14 @@ public abstract class Proxy {
             return nodeId;
         }
 
-        int _nodeId = getNodeId$(nodeIdResolver);
-        if (_nodeId >= -1) {
-            return _nodeId;
+        int nodeId$ = getNodeId$(nodeIdResolver);
+        if (nodeId$ >= -1) {
+            return nodeId$;
         }
 
-        _nodeId = getNodeId$(worker.getNode().getConfig().getNodeIdResolver());
-        if (_nodeId >= -1) {
-            return _nodeId;
+        nodeId$ = getNodeId$(worker.getNode().getConfig().getNodeIdResolver());
+        if (nodeId$ >= -1) {
+            return nodeId$;
         }
 
         //代表当前节点
@@ -75,16 +75,16 @@ public abstract class Proxy {
             return -2;
         }
 
-        int _nodeId = nodeIdResolver.resolveNodeId(this);
-        if (_nodeId < -1) {
+        int nodeId$ = nodeIdResolver.resolveNodeId(this);
+        if (nodeId$ < -1) {
             return -2;
         }
 
         if (nodeIdResolver.isCacheNodeId(this)) {
-            this.nodeId = _nodeId;
+            this.nodeId = nodeId$;
         }
 
-        return _nodeId;
+        return nodeId$;
     }
 
     protected final Object getServiceId$(Worker worker) {
@@ -95,24 +95,24 @@ public abstract class Proxy {
         ServiceIdResolver serviceIdResolver = worker.getNode().getConfig().getServiceIdResolver();
 
         if (serviceIdResolver != null) {
-            Object _serviceId = serviceIdResolver.resolveServiceId(this);
-            if (_serviceId != null) {
+            Object serviceId$ = serviceIdResolver.resolveServiceId(this);
+            if (serviceId$ != null) {
                 if (serviceIdResolver.isCacheServiceId(this)) {
-                    this.serviceId = _serviceId;
+                    this.serviceId = serviceId$;
                 }
-                return _serviceId;
+                return serviceId$;
             }
         }
 
         return getServiceName$();
     }
 
-    protected <R> Promise<R> sendRequest$(int methodId, String methodLabel, int methodSecurity, int expiredTime, Object... params) {
+    protected <R> Promise<R> sendRequest$(MethodInfo methodInfo, Object... params) {
         Worker worker = Worker.current();
         if (worker == null) {
-            throw new IllegalStateException("当前所处线程不合法," + Thread.currentThread());
+            throw new IllegalStateException("当前所处线程不合法：" + Thread.currentThread());
         } else {
-            return worker.sendRequest(this, methodId, methodLabel, methodSecurity, expiredTime, params);
+            return worker.sendRequest(this, methodInfo, params);
         }
     }
 

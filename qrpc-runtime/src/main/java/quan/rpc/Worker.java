@@ -323,32 +323,29 @@ public class Worker implements Executor {
     /**
      * 发送RPC请求
      *
-     * @param <R>            方法的返回结果泛型
-     * @param proxy          服务代理
-     * @param methodId       方法ID
-     * @param methodLabel    方法标签
-     * @param methodSecurity 方法的安全修饰符
-     * @param expiredTime    方法的过期时间
-     * @param params         方法参数列表
+     * @param <R>        目标方法的返回结果泛型
+     * @param proxy      服务代理
+     * @param methodInfo 目标方法信息
+     * @param params     方法参数列表
      */
     @SuppressWarnings("unchecked")
-    protected <R> Promise<R> sendRequest(Proxy proxy, int methodId, String methodLabel, int methodSecurity, int expiredTime, Object... params) {
+    protected <R> Promise<R> sendRequest(Proxy proxy, MethodInfo methodInfo, Object... params) {
         long callId = (long) this.id << 32 | getCallId();
 
         Promise<Object> promise = new Promise<>(this);
         promise.setCallId(callId);
-        promise.setMethodInfo(methodLabel);
-        promise.calcExpiredTime(expiredTime);
+        promise.setMethodInfo(methodInfo.getLabel());
+        promise.calcExpiredTime(methodInfo.getExpiredTime());
 
         mappedPromises.put(callId, promise);
         sortedPromises.add(promise);
 
-        sendRequest(proxy, promise, methodId, methodSecurity, params);
+        sendRequest(proxy, promise, methodInfo, params);
 
         return (Promise<R>) promise;
     }
 
-    private void sendRequest(Proxy proxy, Promise<Object> promise, int methodId, int methodSecurity, Object... params) {
+    private void sendRequest(Proxy proxy, Promise<Object> promise, MethodInfo methodInfo, Object... params) {
         int targetNodeId;
         Object serviceId;
 
@@ -367,15 +364,15 @@ public class Worker implements Executor {
 
         if (targetNodeId == -1) {
             //延迟重新发送
-            timerMgr.newTimer(() -> sendRequest(proxy, promise, methodId, methodSecurity, params), getNode().getConfig().getUpdateInterval());
+            timerMgr.newTimer(() -> sendRequest(proxy, promise, methodInfo, params), getNode().getConfig().getUpdateInterval());
             return;
         }
 
         try {
             promise.setNodeId(targetNodeId);
-            makeSafeParams(targetNodeId, methodSecurity, params);
-            Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodId, params);
-            node.sendRequest(targetNodeId, request, methodSecurity);
+            makeSafeParams(targetNodeId, methodInfo.isSafeArgs(), params);
+            Request request = new Request(node.getId(), promise.getCallId(), serviceId, methodInfo.getId(), params);
+            node.sendRequest(targetNodeId, request, methodInfo.isSafeReturn());
         } catch (Exception e) {
             handleSendRequestError(promise, e);
         }
@@ -391,10 +388,10 @@ public class Worker implements Executor {
     /**
      * 如果方法有参数是不安全的,则需要复制它以保证安全
      *
-     * @param methodSecurity 1:参考 {@link Endpoint#safeArgs()}
+     * @param safeArgs 1:参考 {@link Endpoint#safeArgs()}
      */
-    private void makeSafeParams(int targetNodeId, int methodSecurity, Object[] params) {
-        if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || (methodSecurity & 0b01) == 0b01) {
+    private void makeSafeParams(int targetNodeId, boolean safeArgs, Object[] params) {
+        if (params == null || targetNodeId != 0 && targetNodeId != this.node.getId() || safeArgs) {
             return;
         }
 
@@ -409,14 +406,14 @@ public class Worker implements Executor {
     /**
      * 如果方法的返回结果是不安全的，则需要复制它以保证安全
      *
-     * @param security 2:参考 {@link Endpoint#safeReturn()}
+     * @param safeReturn 2:参考 {@link Endpoint#safeReturn()}
      */
-    private Object makeSafeResult(int originNodeId, int security, Object result) {
+    private Object makeSafeResult(int originNodeId, boolean safeReturn, Object result) {
         if (result == null || originNodeId != this.node.getId()) {
             return result;
         }
 
-        if (ConstantUtils.isConstant(result) || (security & 0b10) == 0b10) {
+        if (ConstantUtils.isConstant(result) || safeReturn) {
             return result;
         } else {
             return cloneObject(result);
@@ -427,17 +424,17 @@ public class Worker implements Executor {
         return SerializeUtils.clone(object, true);
     }
 
-    protected void handleRequest(Request request, int security) {
+    protected void handleRequest(Request request, boolean safeReturn) {
         execute(() -> {
             try {
-                handleRequest0(request, security);
+                handleRequest0(request, safeReturn);
             } catch (Exception e) {
                 logger.error("处理RPC请求出错,callId:{},originNodeId:{}", request.getCallId(), request.getOriginNodeId());
             }
         });
     }
 
-    private void handleRequest0(Request request, int security) {
+    private void handleRequest0(Request request, boolean safeReturn) {
         int originNodeId = request.getOriginNodeId();
         long callId = request.getCallId();
         Object serviceId = request.getServiceId();
@@ -484,16 +481,16 @@ public class Worker implements Executor {
                     sortedPromises.add(promise);
                 }
             } else {
-                logger.error("处理RPC请求,方法不能返回已被使用过的{},methodLabel:", promise.getClass().getSimpleName(), invoker.getMethodLabel(methodId));
+                logger.error("处理RPC请求,方法不能返回已被使用过的{},methodInfo:", promise.getClass().getSimpleName(), invoker.getMethodLabel(methodId));
             }
         }
 
-        promise.completely0(() -> {
+        promise.completely0((r, e) -> {
             if (promise instanceof DelayedResult && !sortedPromises.remove(promise)) {
                 return;
             }
 
-            Object safeResult = makeSafeResult(originNodeId, security, promise.getResult());
+            Object safeResult = makeSafeResult(originNodeId, safeReturn, promise.getResult());
 
             if (promise.isOK()) {
                 node.sendResponse(originNodeId, callId, safeResult, null);
