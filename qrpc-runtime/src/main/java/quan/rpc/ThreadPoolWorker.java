@@ -17,7 +17,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
 
 /**
  * 线程池工作者
@@ -59,26 +58,13 @@ public class ThreadPoolWorker extends Worker {
     protected ExecutorService newExecutor() {
         ThreadFactory threadFactory = new BasicThreadFactory.Builder()
                 .namingPattern("worker-" + getId() + "-%d")
-                .wrappedFactory(this::newThread)
+                .wrappedFactory(task -> new Thread(() -> {
+                    threadLocal.set(this);
+                    task.run();
+                }))
                 .build();
 
-        Supplier<ThreadPoolExecutor> threadPoolFactory = param.getThreadPoolFactory();
-
-        if (threadPoolFactory != null) {
-            ThreadPoolExecutor executor = threadPoolFactory.get();
-            executor.setThreadFactory(threadFactory);
-            return executor;
-        } else {
-            return new Executor(param.getCorePoolSize(), param.getMaxPoolSize(), param.getPoolSizeFactor(), threadFactory);
-        }
-    }
-
-    @Override
-    protected Thread newThread(Runnable task) {
-        return new Thread(() -> {
-            threadLocal.set(this);
-            task.run();
-        });
+        return new Executor(param.getCorePoolSize(), param.getMaxPoolSize(), param.getPoolSizeFactor(), threadFactory);
     }
 
     @Override
@@ -141,21 +127,21 @@ public class ThreadPoolWorker extends Worker {
             submittedTaskCount.decrementAndGet();
         }
 
-        private static class TaskQueue extends LinkedBlockingQueue<Runnable> {
+    }
 
-            Executor executor;
+    private static class TaskQueue extends LinkedBlockingQueue<Runnable> {
 
-            @Override
-            public boolean offer(Runnable task) {
-                int poolSize = executor.getPoolSize();
-                if (executor.submittedTaskCount.get() > poolSize * executor.poolSizeFactor && poolSize < executor.getMaximumPoolSize()) {
-                    return false;
-                } else {
-                    return super.offer(task);
-                }
+        Executor executor;
+
+        @Override
+        public boolean offer(Runnable task) {
+            int poolSize = executor.getPoolSize();
+            if (executor.submittedTaskCount.get() > poolSize * executor.poolSizeFactor && poolSize < executor.getMaximumPoolSize()) {
+                return false;
+            } else {
+                return super.offer(task);
             }
         }
-
     }
 
 }

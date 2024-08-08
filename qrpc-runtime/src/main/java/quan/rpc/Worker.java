@@ -19,16 +19,15 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
- * 单线程工作者
+ * 工作者
  *
  * @author quanchangnai
  */
-public class Worker implements Executor {
+public abstract class Worker implements Executor {
 
-    private final Logger logger = LoggerFactory.getLogger(getClass());
+    protected final Logger logger = LoggerFactory.getLogger(getClass());
 
     protected static final ThreadLocal<Worker> threadLocal = new ThreadLocal<>();
 
@@ -39,8 +38,6 @@ public class Worker implements Executor {
     private final Node node;
 
     private ExecutorService executor;
-
-    private Thread thread;
 
     //暂存还未启动时提交的需要执行的任务
     private final Queue<Runnable> tempTasks = new ConcurrentLinkedQueue<>();
@@ -55,8 +52,6 @@ public class Worker implements Executor {
     protected final Set<TimerMgr> timerMgrSet = newSet();
 
     private final TimerMgr timerMgr = new TimerMgr(this);
-
-    private int nextCallId = 1;
 
     private volatile long updateReadyTime;
 
@@ -92,9 +87,7 @@ public class Worker implements Executor {
         return id;
     }
 
-    public String getFlag() {
-        return node.getConfig().getSingleThreadWorkerFlag() + id;
-    }
+    public abstract String getFlag();
 
     public Node getNode() {
         return node;
@@ -105,7 +98,7 @@ public class Worker implements Executor {
     }
 
     public boolean isSingleThread() {
-        return thread != null;
+        return this instanceof SingleThreadWorker;
     }
 
     public boolean isThreadPool() {
@@ -178,18 +171,8 @@ public class Worker implements Executor {
         });
     }
 
-    protected ExecutorService newExecutor() {
-        return Executors.newFixedThreadPool(1, this::newThread);
-    }
+    protected abstract ExecutorService newExecutor();
 
-    protected Thread newThread(Runnable task) {
-        thread = new Thread(() -> {
-            threadLocal.set(this);
-            task.run();
-        }, "worker-" + id);
-
-        return thread;
-    }
 
     @Override
     public void execute(Runnable task) {
@@ -237,16 +220,12 @@ public class Worker implements Executor {
 
         if (updateIntervalTime > maxUpdateInterval && currentTime - printUpdateIntervalTime > Math.max(5000, maxUpdateInterval * 10)) {
             printUpdateIntervalTime = currentTime;
-            if (thread != null) {
-                StringBuilder sb = new StringBuilder();
-                for (StackTraceElement traceElement : thread.getStackTrace()) {
-                    sb.append("\tat ").append(traceElement).append("\n");
-                }
-                logger.error("线程工作者[{}]帧率过低,距离上次刷帧已经过了{}ms,线程[{}]可能执行了耗时任务\n{}", id, updateIntervalTime, thread, sb);
-            } else {
-                logger.error("线程工作者[{}]帧率过低,距离上次刷帧已经过了{}ms,可能执行了耗时任务", id, updateIntervalTime);
-            }
+            printUpdateIntervalLog(updateIntervalTime);
         }
+    }
+
+    protected void printUpdateIntervalLog(long updateIntervalTime) {
+        logger.error("线程工作者[{}]帧率过低,距离上次刷帧已经过了{}ms,可能执行了耗时任务", id, updateIntervalTime);
     }
 
     /**
@@ -300,13 +279,7 @@ public class Worker implements Executor {
         }
     }
 
-    protected int getCallId() {
-        int callId = nextCallId++;
-        if (nextCallId < 0) {
-            nextCallId = 1;
-        }
-        return callId;
-    }
+    protected abstract int getCallId();
 
     /**
      * 发送RPC请求

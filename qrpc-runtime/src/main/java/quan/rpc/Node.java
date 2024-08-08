@@ -17,10 +17,8 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -40,7 +38,7 @@ public class Node {
 
     private LinkedHashSet<Connector> connectors = new LinkedHashSet<>();
 
-    //key:线程工作者ID
+    //key:工作者ID
     private Map<Integer, Worker> workers = new HashMap<>();
 
     //管理的所有服务，key:服务ID
@@ -104,7 +102,7 @@ public class Node {
 
     private void initWorkers() {
         for (int i = 0; i < config.singleThreadWorkerNum; i++) {
-            Worker worker = new Worker(this);
+            Worker worker = new SingleThreadWorker(this);
             workers.put(worker.getId(), worker);
         }
 
@@ -501,17 +499,6 @@ public class Node {
             return addThreadPoolWorker(corePoolSize, maxPoolSize, 5, null);
         }
 
-        public Config addThreadPoolWorker(Supplier<ThreadPoolExecutor> threadPoolFactory, String flag) {
-            checkReadonly();
-            Objects.requireNonNull(threadPoolFactory, "线程池工厂不能为空");
-            threadPoolParams.add(new ThreadPoolParam(threadPoolFactory, flag));
-            return this;
-        }
-
-        public Config addThreadPoolWorker(Supplier<ThreadPoolExecutor> threadPoolFactory) {
-            return addThreadPoolWorker(threadPoolFactory, null);
-        }
-
         public List<ThreadPoolParam> getThreadPoolParams() {
             return threadPoolParams;
         }
@@ -572,11 +559,6 @@ public class Node {
             private int poolSizeFactor;
 
             /**
-             * 线程池工厂，优先使用
-             */
-            private Supplier<ThreadPoolExecutor> threadPoolFactory;
-
-            /**
              * 线程池工作者自定义标记
              */
             private String flag = "";
@@ -585,13 +567,6 @@ public class Node {
                 this.corePoolSize = corePoolSize;
                 this.maxPoolSize = maxThreadPoolSize;
                 this.poolSizeFactor = threadPoolSizeFactor;
-                if (flag != null) {
-                    this.flag = flag;
-                }
-            }
-
-            protected ThreadPoolParam(Supplier<ThreadPoolExecutor> threadPoolFactory, String flag) {
-                this.threadPoolFactory = threadPoolFactory;
                 if (flag != null) {
                     this.flag = flag;
                 }
@@ -607,10 +582,6 @@ public class Node {
 
             public int getPoolSizeFactor() {
                 return poolSizeFactor;
-            }
-
-            public Supplier<ThreadPoolExecutor> getThreadPoolFactory() {
-                return threadPoolFactory;
             }
 
             public String getFlag() {

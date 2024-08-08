@@ -49,7 +49,7 @@ public class TimerMgr {
 
     public TimerMgr(Worker worker) {
         this.worker = Objects.requireNonNull(worker);
-        this.concurrent = !worker.isSingleThread();
+        this.concurrent = worker.isThreadPool();
         init();
     }
 
