@@ -310,9 +310,9 @@ public class Node {
          */
         private int maxUpdateInterval = 1000;
 
-        private int callTtl = 1000 * 10;
+        private int callTtl = 30 * 1000;
 
-        private int maxCallTtl = 1000 * 60 * 5;
+        private int maxCallTtl = 5 * 60 * 1000;
 
         private int singleThreadWorkerNum = Runtime.getRuntime().availableProcessors();
 

@@ -31,9 +31,9 @@ public class TimerMgr {
 
     private final Logger logger = LoggerFactory.getLogger(getClass());
 
-    private final List<TimerTask> tempTimerTasks = new ArrayList<>();
+    private final List<TimerTask> tempTasks = new ArrayList<>();
 
-    private final PriorityQueue<TimerTask> timerTaskQueue = new PriorityQueue<>();
+    private final PriorityQueue<TimerTask> taskQueue = new PriorityQueue<>();
 
     private final CronParser cronParser = new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
@@ -50,6 +50,7 @@ public class TimerMgr {
     public TimerMgr(Worker worker) {
         this.worker = Objects.requireNonNull(worker);
         this.concurrent = !worker.isSingleThread();
+        init();
     }
 
     /**
@@ -63,7 +64,7 @@ public class TimerMgr {
             throw new IllegalArgumentException("参数[delay]不能小于0");
         }
 
-        return addTimerTask(task, delay, 0, null);
+        return addTask(task, delay, 0, null);
     }
 
     /**
@@ -83,7 +84,7 @@ public class TimerMgr {
             throw new IllegalArgumentException("参数[period]不能小于" + updateInterval);
         }
 
-        return addTimerTask(task, delay, period, null);
+        return addTask(task, delay, period, null);
     }
 
     /**
@@ -94,7 +95,7 @@ public class TimerMgr {
      */
     public Timer newTimer(Runnable task, String cron) {
         Objects.requireNonNull(cron, "cron表达式不能为空");
-        return addTimerTask(task, 0, 0, cron);
+        return addTask(task, 0, 0, cron);
     }
 
     /**
@@ -115,7 +116,7 @@ public class TimerMgr {
                 }
 
                 if (method.getParameterCount() > 0) {
-                    throw new RuntimeException("定时方法不能带有参数:" + method);
+                    throw new IllegalArgumentException("定时方法不能带有参数:" + method);
                 }
 
                 try {
@@ -161,7 +162,7 @@ public class TimerMgr {
         return timers;
     }
 
-    private Timer addTimerTask(Runnable task, long delay, long period, String cron) {
+    private Timer addTask(Runnable task, long delay, long period, String cron) {
         Objects.requireNonNull(task, "参数[task]不能为空");
 
         TimerTask timerTask = new TimerTask();
@@ -176,44 +177,44 @@ public class TimerMgr {
 
         timerTask.calcTime();
 
-        addTimerTask(timerTask);
+        addTask(timerTask);
 
         return timerTask;
     }
 
-    private void addTimerTask(TimerTask timerTask) {
+    private void addTask(TimerTask task) {
         if (concurrent) {
-            synchronized (tempTimerTasks) {
-                tempTimerTasks.add(timerTask);
+            synchronized (tempTasks) {
+                tempTasks.add(task);
             }
         } else {
-            tempTimerTasks.add(timerTask);
+            tempTasks.add(task);
         }
     }
 
-    private void moveTimerTasks() {
+    private void moveTasks() {
         if (concurrent) {
-            synchronized (tempTimerTasks) {
-                timerTaskQueue.addAll(tempTimerTasks);
-                tempTimerTasks.clear();
+            synchronized (tempTasks) {
+                taskQueue.addAll(tempTasks);
+                tempTasks.clear();
             }
         } else {
-            timerTaskQueue.addAll(tempTimerTasks);
-            tempTimerTasks.clear();
+            taskQueue.addAll(tempTasks);
+            tempTasks.clear();
         }
     }
 
-    private void runTimerTask(TimerTask timerTask) {
+    private void runTask(TimerTask task) {
         if (concurrent) {
-            worker.execute(timerTask::run);
+            worker.execute(task::run);
         } else {
-            timerTask.run();
+            task.run();
         }
     }
 
-    public void update() {
+    protected void update() {
         if (concurrent) {
-            synchronized (timerTaskQueue) {
+            synchronized (taskQueue) {
                 doUpdate();
             }
         } else {
@@ -223,29 +224,37 @@ public class TimerMgr {
 
     private void doUpdate() {
         try {
-            moveTimerTasks();
+            moveTasks();
 
-            if (timerTaskQueue.isEmpty()) {
+            if (taskQueue.isEmpty()) {
                 return;
             }
 
-            TimerTask timerTask = timerTaskQueue.peek();
+            TimerTask timerTask = taskQueue.peek();
             while (timerTask != null && (timerTask.isTimeUp() || timerTask.isCancelled())) {
-                timerTaskQueue.poll();
+                taskQueue.poll();
 
                 if (!timerTask.isCancelled()) {
                     timerTask.calcTime();
-                    runTimerTask(timerTask);
+                    runTask(timerTask);
                     if (!timerTask.isDone() && !timerTask.isCancelled()) {
-                        addTimerTask(timerTask);
+                        addTask(timerTask);
                     }
                 }
 
-                timerTask = timerTaskQueue.peek();
+                timerTask = taskQueue.peek();
             }
         } catch (Exception e) {
             logger.error("定时任务执行出错", e);
         }
+    }
+
+    public void init() {
+        worker.timerMgrSet.add(this);
+    }
+
+    public void destroy() {
+        worker.timerMgrSet.remove(this);
     }
 
     /**
@@ -275,6 +284,7 @@ public class TimerMgr {
         @Override
         public void cancel() {
             time = -2;
+            task = null;
         }
 
         @Override

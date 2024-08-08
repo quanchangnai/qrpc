@@ -21,7 +21,7 @@ public abstract class Service<I> implements Executor {
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
-    volatile int state = 0;
+    private volatile int state = 0;
 
     /**
      * 服务所属的线程工作者
@@ -62,10 +62,6 @@ public abstract class Service<I> implements Executor {
         worker.execute(task);
     }
 
-    public TimerMgr getTimerMgr() {
-        return timerMgr;
-    }
-
     /**
      * @see Worker#getTime()
      */
@@ -104,10 +100,31 @@ public abstract class Service<I> implements Executor {
         return worker.newDelayedResult();
     }
 
-    final void initTimerMgr() {
-        timerMgr = new TimerMgr(worker);
-        timerMgr.newTimers(this);
+    final void init$() {
+        if (state == 0) {
+            try {
+                state = 1;
+                timerMgr = new TimerMgr(worker);
+                timerMgr.newTimers(this);
+                init();
+            } catch (Exception e) {
+                logger.error("服务[{}]初始化异常", getId(), e);
+            }
+        }
     }
+
+    final void destroy$() {
+        if (state == 1) {
+            try {
+                state = 2;
+                timerMgr.destroy();
+                destroy();
+            } catch (Exception e) {
+                logger.error("服务[{}]销毁异常", getId(), e);
+            }
+        }
+    }
+
 
     /**
      * 初始化

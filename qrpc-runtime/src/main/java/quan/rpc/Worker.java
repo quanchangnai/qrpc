@@ -8,10 +8,12 @@ import quan.rpc.Protocol.Response;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -50,8 +52,9 @@ public class Worker implements Executor {
 
     private final SortedSet<Promise<?>> sortedPromises = newSortedSet();
 
+    protected final Set<TimerMgr> timerMgrSet = newSet();
 
-    public final TimerMgr timerMgr = new TimerMgr(this);
+    private final TimerMgr timerMgr = new TimerMgr(this);
 
     private int nextCallId = 1;
 
@@ -73,8 +76,11 @@ public class Worker implements Executor {
         return new HashMap<>();
     }
 
-    @SuppressWarnings("SortedCollectionWithNonComparableKeys")
-    protected <E> SortedSet<E> newSortedSet() {
+    protected <E> Set<E> newSet() {
+        return new HashSet<>();
+    }
+
+    protected <E extends Comparable<E>> SortedSet<E> newSortedSet() {
         return new TreeSet<>();
     }
 
@@ -137,26 +143,11 @@ public class Worker implements Executor {
     }
 
     protected void initService(Service<?> service) {
-        if (service.state == 0) {
-            try {
-                service.state = 1;
-                service.initTimerMgr();
-                service.init();
-            } catch (Exception e) {
-                logger.error("服务[{}]初始化异常", service.getId(), e);
-            }
-        }
+        service.init$();
     }
 
     protected void destroyService(Service<?> service) {
-        if (service.state == 1) {
-            try {
-                service.state = 2;
-                service.destroy();
-            } catch (Exception e) {
-                logger.error("服务[{}]销毁异常", service.getId(), e);
-            }
-        }
+        service.destroy$();
     }
 
     public Service<?> getService(Object serviceId) {
@@ -264,10 +255,7 @@ public class Worker implements Executor {
     private void doUpdate() {
         try {
             updateStartTime = System.currentTimeMillis();
-            timerMgr.update();
-            for (Service<?> service : services.values()) {
-                service.getTimerMgr().update();
-            }
+            timerMgrSet.forEach(TimerMgr::update);
             expirePromises();
             checkUpdateTime();
         } finally {

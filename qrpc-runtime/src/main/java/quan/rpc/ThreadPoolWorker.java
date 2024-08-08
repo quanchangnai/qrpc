@@ -3,9 +3,19 @@ package quan.rpc;
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import quan.rpc.Node.Config.ThreadPoolParam;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -37,8 +47,12 @@ public class ThreadPoolWorker extends Worker {
     }
 
     @Override
-    @SuppressWarnings("SortedCollectionWithNonComparableKeys")
-    protected <E> SortedSet<E> newSortedSet() {
+    protected <E> Set<E> newSet() {
+        return Collections.synchronizedSet(new HashSet<>());
+    }
+
+    @Override
+    protected <E extends Comparable<E>> SortedSet<E> newSortedSet() {
         return new ConcurrentSkipListSet<>();
     }
 
@@ -69,12 +83,12 @@ public class ThreadPoolWorker extends Worker {
 
     @Override
     protected void initService(Service<?> service) {
-        execute(() -> super.initService(service));
+        execute(service::init$);
     }
 
     @Override
     protected void destroyService(Service<?> service) {
-        execute(() -> super.destroyService(service));
+        execute(service::destroy$);
     }
 
     @Override
