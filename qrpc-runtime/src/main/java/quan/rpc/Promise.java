@@ -368,7 +368,13 @@ public class Promise<R> implements Comparable<Promise<?>> {
 
     @Override
     public int compareTo(Promise<?> other) {
-        return Long.compare(this.expiredTime, other.expiredTime);
+        int r = Long.compare(this.expiredTime, other.expiredTime);
+
+        if (r == 0) {
+            r = Long.compare(this.callId, other.callId);
+        }
+
+        return r;
     }
 
     @Override

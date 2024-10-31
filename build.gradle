@@ -28,14 +28,6 @@ subprojects {
         }
     }
 
-    publishing {
-        publications {
-            maven(MavenPublication) {
-                from components.java
-            }
-        }
-    }
-
     tasks.register('copyDependencies', Copy) {
         from configurations.runtimeClasspath
         into "$buildDir/dependencies"

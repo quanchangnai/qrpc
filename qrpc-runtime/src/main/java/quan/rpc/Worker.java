@@ -248,6 +248,7 @@ public abstract class Worker implements Executor {
         }
 
         Iterator<Promise<?>> iterator = sortedPromises.iterator();
+
         while (iterator.hasNext()) {
             Promise<?> promise = iterator.next();
             if (!promise.isExpired()) {
