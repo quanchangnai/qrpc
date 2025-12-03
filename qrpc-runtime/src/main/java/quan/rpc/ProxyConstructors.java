@@ -39,12 +39,12 @@ public @interface ProxyConstructors {
     int NODE_ID_AND_SERVICE_ID = 4;
 
     /**
-     * 指定[节点ID计算器]构造服务代理，目标节点ID和服务ID需要{@link NodeIdResolver}和{@link ServiceIdResolver}解析出来
+     * 指定[节点ID解析器]构造服务代理，目标节点ID和服务ID需要{@link NodeIdResolver}和{@link ServiceIdResolver}解析出来
      */
     int NODE_ID_RESOLVER = 5;
 
     /**
-     * 指定[节点ID计算器]和[服务ID]构造服务代理，目标节点ID需要{@link NodeIdResolver}解析出来
+     * 指定[节点ID解析器]和[服务ID]构造服务代理，目标节点ID需要{@link NodeIdResolver}解析出来
      */
     int NODE_ID_RESOLVER_AND_SERVICE_ID = 6;
 
