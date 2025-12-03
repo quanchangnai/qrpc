@@ -11,7 +11,11 @@ import quan.rpc.Protocol.PingPong;
 import quan.rpc.Protocol.Request;
 import quan.rpc.Protocol.Response;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -61,7 +65,7 @@ public class SerializeUtils {
 
     private static boolean useLocalBuffer() {
         Worker worker = Worker.current();
-        return worker != null && !(worker instanceof ThreadPoolWorker);
+        return worker != null && worker.isSingleThread();
     }
 
     public static long readVarInt64(InputStream is) {
@@ -177,7 +181,7 @@ public class SerializeUtils {
             ProtostuffIOUtil.mergeFrom(is, root, schema, buffer);
 
             if (root instanceof MutableObject) {
-                return (T) ((MutableObject) root).getValue();
+                return (T) ((MutableObject) root).get();
             } else {
                 return (T) root;
             }
